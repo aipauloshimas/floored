@@ -124,6 +124,7 @@ test('settings survive a restart on another port', async ({ page }) => {
     // and the page really is on another origin
     expect(await page.evaluate(() => location.port)).toBe('3198');
   } finally {
+    await page.goto('about:blank');          // the studio polls its server: a page left open on a stopped one logs refusals
     if (a) await stopServer(a);
     if (b) await stopServer(b);
     fs.rmSync(run, { recursive: true, force: true });

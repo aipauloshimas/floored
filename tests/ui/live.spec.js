@@ -245,7 +245,7 @@ test('typing wins over a suggestion that arrives while the creator is writing', 
   await openTextSection(page, 'Type it');
   const area = page.getByLabel('Your words');
   await area.click();
-  await page.keyboard.press('Control+A');
+  await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('Mine');
   // the first key marks the text as edited at once, not 400 ms later
   expect(await page.evaluate(() => window.__ft.studio.S.text.edited)).toBe(true);
