@@ -183,6 +183,7 @@ def winget_ffmpeg(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'platform', 'win32')
     monkeypatch.setenv('LOCALAPPDATA', str(local))
     monkeypatch.setenv('PATH', str(empty))
+    monkeypatch.setattr(doctor, 'which', lambda name, path=None: None)   # the PATH is empty (and shutil.which's Windows branch needs Windows)
     for var in ('ProgramFiles', 'ProgramW6432'):
         monkeypatch.delenv(var, raising=False)
     return exe
@@ -217,6 +218,7 @@ def test_stale_path_with_nothing_found_is_forgotten(monkeypatch, tmp_path):
     empty.mkdir()
     monkeypatch.setenv('PATH', str(empty))
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'nolocal'))
+    monkeypatch.setattr(doctor, 'which', lambda name, path=None: None)
     for var in ('ProgramFiles', 'ProgramW6432'):
         monkeypatch.delenv(var, raising=False)
     doctor.record_tool('ffmpeg', str(tmp_path / 'gone.exe'))

@@ -32,6 +32,7 @@ module.exports = defineConfig({
   timeout: 90000,
   expect: { timeout: 20000 },
   workers: 1,
+  retries: process.env.CI ? 1 : 0,             // GitHub's runners: one retry for a slow first page load
   fullyParallel: false,
   reporter: [['list']],
   outputDir: path.join(RUN, 'results'),

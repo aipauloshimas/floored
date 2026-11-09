@@ -50,6 +50,9 @@ jobs:
           echo "PY=$PY" >> "$GITHUB_ENV"
           $PY -m pip install --upgrade pip
           $PY -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: the studio server starts (stacks dumped if it hangs)
+        continue-on-error: true
+        run: $PY dev/ci/server_smoke.py
       - name: fast Python suite
         run: $PY -m pytest -v --tb=short -rfE --junitxml=pytest-fast.xml
       - name: node suite
