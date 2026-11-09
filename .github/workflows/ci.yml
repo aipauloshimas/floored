@@ -35,17 +35,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: ffmpeg
+      - name: ffmpeg (the full build, which the doctor asks for)
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install ffmpeg; else choco install ffmpeg -y --no-progress; fi
-          ffmpeg -version | head -1
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install ffmpeg-full
+            echo "$(brew --prefix ffmpeg-full)/bin" >> "$GITHUB_PATH"
+          else
+            choco install ffmpeg -y --no-progress
+          fi
       - name: dev venv
         run: |
           python -m venv .venv
           if [ "$RUNNER_OS" = Windows ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
           echo "PY=$PY" >> "$GITHUB_ENV"
           $PY -m pip install --upgrade pip
-          $PY -m pip install -r requirements-dev.txt
+          $PY -m pip install -r requirements.txt -r requirements-dev.txt
       - name: fast Python suite
         run: $PY -m pytest -q
       - name: node suite
@@ -75,9 +79,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # On macOS, Homebrew's slim ffmpeg on PATH plus the doctor's `brew install ffmpeg-full` (keg-only, off PATH): the
+      # doctor must find and record the full build. The slow suite's own fixtures use the PATH one.
       - name: ffmpeg
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install ffmpeg; else choco install ffmpeg -y --no-progress; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install ffmpeg ffmpeg-full; else choco install ffmpeg -y --no-progress; fi
       - name: doctor, before anything is installed
         run: python "$FT" doctor --json || true
       - name: doctor --install venv
@@ -98,6 +104,6 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
           echo "PY=$PY" >> "$GITHUB_ENV"
           $PY -m pip install --upgrade pip
-          $PY -m pip install -r requirements-dev.txt
+          $PY -m pip install -r requirements.txt -r requirements-dev.txt
       - name: slow suite (real cutouts, the sample export, 4K)
         run: $PY -m pytest -m slow -v --durations=15

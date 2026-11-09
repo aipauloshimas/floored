@@ -59,11 +59,13 @@ LABELS = {'python': 'Python', 'ffmpeg': 'ffmpeg', 'node': 'Node.js', 'browser': 
 # manual installs: winget id, brew formula (cask for the browser), download page
 MANUAL = {
     'python': {'winget': 'Python.Python.3.12', 'brew': 'python@3.12', 'page': 'https://www.python.org/downloads/'},
-    'ffmpeg': {'winget': 'Gyan.FFmpeg', 'brew': 'ffmpeg', 'page': 'https://www.gyan.dev/ffmpeg/builds/'},
+    'ffmpeg': {'winget': 'Gyan.FFmpeg', 'brew': 'ffmpeg-full', 'page': 'https://www.gyan.dev/ffmpeg/builds/'},
     'node': {'winget': 'OpenJS.NodeJS.LTS', 'brew': 'node', 'page': 'https://nodejs.org/en/download'},
     'browser': {'winget': 'Google.Chrome', 'brew': 'google-chrome', 'cask': True, 'page': 'https://www.google.com/chrome/'},
 }
 MAC_PAGE = {'ffmpeg': 'https://ffmpeg.org/download.html'}
+# Homebrew's plain `ffmpeg` has no zscale; `ffmpeg-full` has it but is keg-only, so it is never on PATH (Apple silicon, Intel).
+FULL_FFMPEG_DIRS = ['/opt/homebrew/opt/ffmpeg-full/bin', '/usr/local/opt/ffmpeg-full/bin']
 NOT_SET_UP = "floored isn't set up yet. Ask Claude to run the setup."
 
 
@@ -171,7 +173,7 @@ def search_dirs():
                 found.append(os.path.join(pf, 'nodejs'))
                 found += sorted(glob.glob(os.path.join(glob.escape(pf), 'Python3*')), key=_python_folder_key, reverse=True)
     else:
-        found += ['/opt/homebrew/bin', '/usr/local/bin']
+        found += FULL_FFMPEG_DIRS + ['/opt/homebrew/bin', '/usr/local/bin']
     seen, out = set(), []
     for d in found:
         key = os.path.normcase(d)
@@ -288,6 +290,17 @@ FFMPEG_MISSING_TEXT = {'zscale': "it can't convert HDR video", 'libvpx-vp9': "it
                        'libx264': "it can't write the final video"}
 
 
+def full_build_ffmpeg():
+    """(ffmpeg, ffprobe) of a full build in a folder PATH never has (Homebrew's keg-only ffmpeg-full), or None."""
+    if not _mac():
+        return None
+    for folder in FULL_FFMPEG_DIRS:
+        exe, probe = _which_in(folder, 'ffmpeg'), _which_in(folder, 'ffprobe')
+        if exe and probe and not ffmpeg_features(exe)['missing']:
+            return exe, probe
+    return None
+
+
 def check_ffmpeg():
     need = 'ffmpeg (the full build)'
     hit = find_program('ffmpeg')
@@ -296,6 +309,12 @@ def check_ffmpeg():
     if not hit:
         return _manual_item('ffmpeg', False, None, need, "ffmpeg isn't installed.")
     features = ffmpeg_features(hit['path'])
+    full = full_build_ffmpeg() if features['missing'] else None
+    if full:                                     # the PATH one is a slim build: record the full one, it goes first
+        record_tool('ffmpeg', full[0])
+        record_tool('ffprobe', full[1])
+        hit, probe = {'path': full[0], 'via': 'search', 'stale': None}, {'path': full[1]}
+        features = ffmpeg_features(full[0])
     found = 'ffmpeg ' + (features['version'] or '')
     if features['missing']:
         return _manual_item('ffmpeg', False, found.strip(), need,

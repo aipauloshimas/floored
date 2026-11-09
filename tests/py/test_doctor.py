@@ -66,7 +66,7 @@ def test_missing_ffmpeg_gives_os_command(monkeypatch):
     assert item['ok'] is False and item['how'] == 'manual' and item['id'] == 'ffmpeg'
     assert item['command'] == 'winget install --id Gyan.FFmpeg -e'
     platform(monkeypatch, 'darwin')
-    assert doctor.check_ffmpeg()['command'] == 'brew install ffmpeg'
+    assert doctor.check_ffmpeg()['command'] == 'brew install ffmpeg-full'
     platform(monkeypatch, 'win32', tools=())                         # no winget: the official page
     assert doctor.check_ffmpeg()['command'].startswith('https://')
     platform(monkeypatch, 'darwin', tools=())
@@ -77,7 +77,7 @@ def test_missing_ffmpeg_gives_os_command(monkeypatch):
     ('python', 'winget install --id Python.Python.3.12 -e', 'brew install python@3.12'),
     ('node', 'winget install --id OpenJS.NodeJS.LTS -e', 'brew install node'),
     ('browser', 'winget install --id Google.Chrome -e', 'brew install --cask google-chrome'),
-    ('ffmpeg', 'winget install --id Gyan.FFmpeg -e', 'brew install ffmpeg'),
+    ('ffmpeg', 'winget install --id Gyan.FFmpeg -e', 'brew install ffmpeg-full'),
 ])
 def test_install_commands(monkeypatch, item_id, win, mac):
     platform(monkeypatch, 'win32')
@@ -114,9 +114,36 @@ def test_ffmpeg_without_zscale_flagged(monkeypatch):
     platform(monkeypatch, 'darwin')
     fake_ffmpeg(monkeypatch, filters=' ... scale            V->V       Scale the input video size.\n')
     item = doctor.check_ffmpeg()
-    assert item['ok'] is False and "can't convert HDR video" in item['note'] and item['command'] == 'brew install ffmpeg'
+    assert item['ok'] is False and "can't convert HDR video" in item['note'] and item['command'] == 'brew install ffmpeg-full'
     assert not JARGON.search(item['note']), item
     assert item['found'] == 'ffmpeg 8.1-full_build-www.gyan.dev'
+
+
+def test_mac_slim_ffmpeg_on_path_uses_the_full_build(tmp_path, monkeypatch):
+    """Homebrew's plain ffmpeg (no zscale) is on PATH; the keg-only ffmpeg-full is found, recorded and used."""
+    platform(monkeypatch, 'darwin')
+    keg = tmp_path / 'ffmpeg-full' / 'bin'
+    keg.mkdir(parents=True)
+    for name in ('ffmpeg', 'ffprobe'):
+        (keg / name).write_text('')
+    monkeypatch.setattr(doctor, 'FULL_FFMPEG_DIRS', [str(tmp_path / 'none'), str(keg)])
+    monkeypatch.setattr(doctor, 'find_program', lambda name: {'path': '/usr/bin/' + name, 'via': 'path', 'stale': None})
+    full = str(keg / 'ffmpeg')
+
+    def capture(cmd, timeout=60, env=None):
+        if '-version' in cmd:
+            return 0, 'ffmpeg version %s Copyright (c) 2000-2026' % ('9.0.2-full' if cmd[0] == full else '9.0.2')
+        if '-filters' in cmd:
+            return 0, FILTERS if cmd[0] == full else ' ... scale            V->V       Scale the input video size.\n'
+        return 0, ENCODERS
+    monkeypatch.setattr(doctor, '_capture', capture)
+    item = doctor.check_ffmpeg()
+    assert item['ok'] is True and item['found'] == 'ffmpeg 9.0.2-full', item
+    tools = doctor.recorded_tools()
+    assert tools['ffmpeg'] == full and tools['ffprobe'] == str(keg / 'ffprobe')
+    monkeypatch.setattr(doctor, 'FULL_FFMPEG_DIRS', [str(tmp_path / 'none')])     # no full build: still flagged
+    item = doctor.check_ffmpeg()
+    assert item['ok'] is False and item['command'] == 'brew install ffmpeg-full'
 
 
 def test_ffmpeg_without_vp9_or_x264_flagged(monkeypatch):
