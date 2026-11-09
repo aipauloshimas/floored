@@ -35,6 +35,7 @@ import json
 import os
 import signal
 import socket
+import socketserver
 import subprocess
 import sys
 import threading
@@ -232,7 +233,10 @@ class Server(ThreadingHTTPServer):
     def server_bind(self):
         if os.name == 'nt' and hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        super().server_bind()
+        # HTTPServer.server_bind also asks socket.getfqdn(host), a reverse DNS lookup that can take many seconds on a Mac
+        # (35 s on GitHub's macOS runners). The name is never used: bind the TCP socket and keep the address as it is.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     ws = None
     url = None

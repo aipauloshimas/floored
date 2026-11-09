@@ -87,6 +87,18 @@ def wait_gone(pid, seconds):
 
 
 # ----------------------------------------------------------------------------------------------------------- ports
+def test_bind_does_no_name_lookup(monkeypatch):
+    """HTTPServer's own bind asks reverse DNS for the host's name: 35 s on GitHub's Macs. Ours never asks."""
+    def no_dns(*a, **k):
+        raise AssertionError('reverse DNS lookup at bind')
+    monkeypatch.setattr(socket, 'getfqdn', no_dns)
+    srv = server.bind(None)
+    try:
+        assert srv.server_name == '127.0.0.1' and srv.server_port == srv.server_address[1]
+    finally:
+        srv.server_close()
+
+
 def test_first_free_port(tmp_path, ftcli):
     base = port_base()
     busy = socket.socket()
