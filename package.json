@@ -1,0 +1,12 @@
+{
+  "name": "floored-dev",
+  "private": true,
+  "description": "Dev-only: Playwright smoke tests for the floored studio (the plugin itself has no Node dependencies).",
+  "scripts": {
+    "test:ui": "playwright test",
+    "test:match": "playwright test -c playwright.match.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}

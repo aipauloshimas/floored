@@ -1,0 +1,19 @@
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.superpowers/
+# test and bench output
+tests/out/
+tests/py/_out/
+dev/bench/*/
+dev/bench/sheets/
+dev/bench/logs/
+dev/bench/layout-check.txt
+dev/fonts-src/
+
+# Playwright (Task 14)
+tests/ui/.fixtures/
+test-results/
+playwright-report/

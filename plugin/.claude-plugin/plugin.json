@@ -1,0 +1,11 @@
+{
+  "name": "floored",
+  "version": "0.1.0",
+  "description": "Make a 3D floor text video intro from your own top-down take: your cutout stands on a floor of big words, rendered to MP4 on your computer.",
+  "license": "MIT",
+  "homepage": "https://github.com/aipauloshimas/floored",
+  "repository": "https://github.com/aipauloshimas/floored",
+  "author": {
+    "name": "aipauloshimas"
+  }
+}

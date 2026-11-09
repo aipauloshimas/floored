@@ -1,0 +1,129 @@
+{
+ "id": "sample",
+ "name": "Sample take",
+ "file": "1.1-invideo-seedance_2_0.mp4",
+ "w": 1080,
+ "h": 1920,
+ "fps": 24,
+ "frames": 121,
+ "dur": 5.042,
+ "bitrate": 5371982,
+ "tier": 1,
+ "out": {
+  "w": 1080,
+  "h": 1920,
+  "fps": 24,
+  "fpsStr": "24",
+  "bitrate": 5371982
+ },
+ "files": {
+  "person": "person.webm",
+  "preview": "person.webm",
+  "shadow": "shadow.webm",
+  "audio": "audio.m4a"
+ },
+ "hasAudio": true,
+ "feet": {
+  "x": 664,
+  "y": 1668
+ },
+ "height": 1379,
+ "k0": 0.4469,
+ "aoWidth": 365,
+ "edgeFrames": [
+  30,
+  31,
+  32,
+  33,
+  34,
+  35,
+  36,
+  37,
+  38,
+  39,
+  60,
+  61,
+  62,
+  63,
+  64,
+  91,
+  92,
+  93,
+  94,
+  95,
+  96,
+  97,
+  98,
+  99,
+  100,
+  101,
+  102,
+  103,
+  104
+ ],
+ "transcript": "Here's how you create this awesome effect for free.",
+ "language": "en",
+ "words": [
+  {
+   "word": "Here's",
+   "start": 1.44,
+   "end": 1.96
+  },
+  {
+   "word": "how",
+   "start": 1.96,
+   "end": 2.04
+  },
+  {
+   "word": "you",
+   "start": 2.04,
+   "end": 2.16
+  },
+  {
+   "word": "create",
+   "start": 2.16,
+   "end": 2.4
+  },
+  {
+   "word": "this",
+   "start": 2.4,
+   "end": 2.64
+  },
+  {
+   "word": "awesome",
+   "start": 2.64,
+   "end": 3.02
+  },
+  {
+   "word": "effect",
+   "start": 3.02,
+   "end": 3.36
+  },
+  {
+   "word": "for",
+   "start": 3.36,
+   "end": 3.6
+  },
+  {
+   "word": "free.",
+   "start": 3.6,
+   "end": 3.96
+  }
+ ],
+ "warnings": [
+  {
+   "code": "edge",
+   "message": "Your body touches the edge of the frame in 29 frames (around 1.3 s, 2.6 s and 4.0 s). Leave some room around you next time."
+  }
+ ],
+ "created": "2026-11-08T13:05:00",
+ "suggestions": [
+  "You don't need After Effects for this",
+  "Words on the floor, for free",
+  "Steal this 3D text trick",
+  "This intro took zero editing"
+ ],
+ "smallSuggestions": [
+  "IN CLAUDE CODE"
+ ]
+}

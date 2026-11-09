@@ -1,0 +1,16 @@
+{
+  "name": "floored",
+  "owner": {
+    "name": "aipauloshimas"
+  },
+  "plugins": [
+    {
+      "name": "floored",
+      "source": "./plugin",
+      "description": "Make a 3D floor text video intro from your own top-down take."
+    }
+  ],
+  "metadata": {
+    "description": "floored: a free Claude Code plugin that makes a 3D floor text video intro from your own take."
+  }
+}

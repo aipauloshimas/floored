@@ -1,0 +1,103 @@
+# floored's automated checks on GitHub's standard runners (free on a public repo; never a larger runner).
+# tests:   the fast Python suite, the engine's node tests and the studio's browser tests.
+# install: a clean install through the doctor (the same --install steps SKILL.md runs), then the slow suite, which
+#          cuts real takes with RVM and exports the sample. No secrets, no Claude login, nothing paid.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: ffmpeg
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install ffmpeg; else choco install ffmpeg -y --no-progress; fi
+          ffmpeg -version | head -1
+      - name: dev venv
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = Windows ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          $PY -m pip install --upgrade pip
+          $PY -m pip install -r requirements-dev.txt
+      - name: fast Python suite
+        run: $PY -m pytest -q
+      - name: node suite
+        run: node --test tests/js/
+      - name: browser suite (Chrome on macOS, Edge on Windows)
+        run: |
+          npm ci
+          npx playwright test
+
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    env:
+      FT: plugin/skills/floored/app/floored.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: ffmpeg
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install ffmpeg; else choco install ffmpeg -y --no-progress; fi
+      - name: doctor, before anything is installed
+        run: python "$FT" doctor --json || true
+      - name: doctor --install venv
+        run: python "$FT" doctor --install venv
+      - name: doctor --install packages
+        run: python "$FT" doctor --install packages
+      - name: doctor --install rvm-model
+        run: python "$FT" doctor --install rvm-model
+      - name: doctor --install renderer
+        run: python "$FT" doctor --install renderer
+      - name: doctor --install words
+        run: python "$FT" doctor --install words
+      - name: doctor, everything installed
+        run: python "$FT" doctor --json
+      - name: dev venv
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = Windows ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          $PY -m pip install --upgrade pip
+          $PY -m pip install -r requirements-dev.txt
+      - name: slow suite (real cutouts, the sample export, 4K)
+        run: $PY -m pytest -m slow -v --durations=15

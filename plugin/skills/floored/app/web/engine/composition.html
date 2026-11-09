@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<!--
+  floored export template (HyperFrames composition). Filled by export.py and by bench/make.py:
+    __DUR__ (s)   __FPS__   __TAKE_JSON__ (take.json)   __SETTINGS_JSON__ (settings)   __FONT_FILE__ (e.g. anton.woff2)
+  Filled folder:  index.html, assets/engine/{data.js, metrics.js, layout.js, engine.js, engine.css},
+                  assets/engine/fonts/<font file>, assets/person.webm, assets/shadow.webm
+  One paused GSAP timeline drives engine.paint(t); the engine never plays or seeks a video (HyperFrames times the clips).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>floored</title>
+<script src="assets/engine/gsap.min.js"></script>
+<link rel="stylesheet" href="assets/engine/engine.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+</style>
+<script src="assets/engine/data.js"></script>
+<script src="assets/engine/metrics.js"></script>
+<script src="assets/engine/layout.js"></script>
+<script src="assets/engine/engine.js"></script>
+</head>
+<body>
+<div id="root" class="ft-root" data-composition-id="main" data-start="0" data-width="1080" data-height="1920" data-duration="__DUR__" data-fps="__FPS__">
+  <div class="ft-world">
+    <div class="ft-cam" data-layout-allow-overflow data-layout-allow-overlap>
+      <div class="ft-floor">
+        <div class="ft-tex"></div>
+        <div class="ft-para"></div>
+        <div class="ft-ao"></div>
+        <div class="ft-sw"><video id="sv" class="ft-sv clip" src="assets/shadow.webm" data-start="0" data-duration="__DUR__" data-media-start="0" data-track-index="1" muted playsinline preload="auto" data-layout-allow-occlusion></video></div>
+      </div>
+    </div>
+    <div class="ft-pw"><video id="pv" class="ft-pv clip" src="assets/person.webm" data-start="0" data-duration="__DUR__" data-media-start="0" data-track-index="2" muted playsinline preload="auto" data-layout-allow-occlusion></video></div>
+  </div>
+  <div class="ft-vig"></div>
+  <canvas class="ft-grain" width="540" height="960"></canvas>
+  <div class="ft-flash"></div>
+  <svg class="ft-defs" width="0" height="0" style="position:absolute"><defs></defs></svg>
+</div>
+<script>
+(function () {
+  var TAKE = __TAKE_JSON__;
+  var SETTINGS = __SETTINGS_JSON__;
+  var DUR = __DUR__;
+  var OPTS = { mode: 'render', fontsBase: 'assets/engine/fonts/' };
+  var root = document.getElementById('root');
+  // start the font load now (engine injects the @font-face) so document.fonts.ready waits for it, then build once it is in
+  var fontLoad = Floored.prepareFont(SETTINGS, OPTS);
+  document.fonts.ready.then(function () { return fontLoad; }).then(function () {
+    var engine = Floored.createSync(root, TAKE, SETTINGS, OPTS);
+    window.__ft = engine;                                   // handle for debugging and the bench
+    var clock = { t: 0 };
+    var tl = gsap.timeline({ paused: true });
+    tl.to(clock, { t: DUR, duration: DUR, ease: 'none', onUpdate: function () { engine.paint(clock.t); } }, 0);
+    engine.paint(0);
+    window.__timelines = window.__timelines || {};
+    window.__timelines['main'] = tl;                        // LAST: registering before the build renders blank
+  });
+})();
+</script>
+</body>
+</html>

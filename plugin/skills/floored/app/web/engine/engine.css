@@ -1,0 +1,42 @@
+/* floored engine: styles for the scene skeleton of app/SPEC.md. The host page writes the skeleton, engine.js fills it.
+   Colours come from CSS variables the engine sets on .ft-root: --ft-floor, --ft-ink, --ft-small. */
+.ft-root {
+  position: relative; width: 1080px; height: 1920px; overflow: hidden; isolation: isolate;
+  background: var(--ft-floor, #C8CEBF);
+  --ft-floor: #C8CEBF; --ft-ink: #E0161A; --ft-small: #5C1515;
+}
+.ft-root * { box-sizing: border-box; }
+
+/* 2D wrapper: the "dive" ending zooms this */
+.ft-world { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; }
+/* the virtual camera */
+.ft-cam { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; perspective: 2000px; perspective-origin: 540px 150px; }
+/* the floor plane: translate3d(ax, ay, 0) rotateX(A) scale(S); its origin (0, 0) is the feet */
+.ft-floor { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
+.ft-tex { position: absolute; left: -4000px; top: -4000px; width: 8000px; height: 8000px; pointer-events: none; opacity: 0;
+          background-size: 600px 600px; background-repeat: repeat; }
+.ft-para { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
+.ft-ao { position: absolute; border-radius: 50%; pointer-events: none;
+         background: radial-gradient(closest-side, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0)); }
+.ft-sw { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; opacity: 0.36; pointer-events: none; }
+.ft-pw { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; pointer-events: none; }
+.ft-sw video, .ft-pw video { display: block; width: 100%; height: 100%; }
+
+/* the words. line-height is the font's cap height (unitless, so row box = 0.86 * cap size); the engine adds the
+   cap-top nudge to `top`. No kerning or ligatures: the layout measures advances only (FT_METRICS). */
+.ft-row {
+  position: absolute; white-space: nowrap; color: var(--ft-ink); transform-origin: 0 0;
+  font-kerning: none; font-variant-ligatures: none; font-feature-settings: "kern" 0, "liga" 0, "calt" 0;
+  -webkit-font-smoothing: antialiased;
+}
+.ft-row.ft-small { color: var(--ft-small); }
+/* small line over big type (giant, poster): each word brings its own floor-coloured plate, so nothing shows early */
+.ft-row.ft-plate .ft-w { background: var(--ft-floor); box-shadow: 0 0 0 0.24em var(--ft-floor); }
+.ft-rot { position: absolute; transform-origin: 0 0; }
+.ft-w { display: inline-block; transform-origin: 50% 50%; }
+
+/* screen-space layers above the world */
+.ft-vig { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; pointer-events: none; opacity: 0; }
+.ft-grain { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; pointer-events: none; mix-blend-mode: overlay; opacity: 0; }
+.ft-flash { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; background: #fff; opacity: 0; pointer-events: none; }
+.ft-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
