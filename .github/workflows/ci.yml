@@ -56,8 +56,10 @@ jobs:
       - name: fast Python suite
         run: $PY -m pytest -v --tb=short -rfE --junitxml=pytest-fast.xml
       - name: node suite
+        if: success() || failure()
         run: node --test tests/js/
       - name: browser suite (Chrome on macOS, Edge on Windows)
+        if: success() || failure()
         run: |
           npm ci
           npx playwright test

@@ -4,6 +4,7 @@ import http.client
 import json
 import os
 import socket
+import sys
 import threading
 import time
 
@@ -56,9 +57,18 @@ def test_chunked_upload_cannot_pass_the_cap(live, monkeypatch):
     srv, port = live
     monkeypatch.setattr(server, 'MAX_UPLOAD', 5000)
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=20)
-    conn.request('POST', '/api/takes', body=chunks(20000), headers={'X-Filename': 'a.mp4'}, encode_chunked=True)
-    r = conn.getresponse()
-    assert r.status == 413 and 'too large' in json.loads(r.read())['error']
+    try:
+        conn.request('POST', '/api/takes', body=chunks(20000), headers={'X-Filename': 'a.mp4'}, encode_chunked=True)
+    except (BrokenPipeError, ConnectionResetError):
+        pass                    # macOS: the server answered 413 and closed while the client was still sending the rest
+    try:
+        r = conn.getresponse()
+        assert r.status == 413 and 'too large' in json.loads(r.read())['error']
+    except (BrokenPipeError, ConnectionResetError, http.client.RemoteDisconnected):
+        assert sys.platform != 'win32'                              # Windows always reads the 413
+    deadline = time.time() + 5
+    while not srv.pipe.aborted and time.time() < deadline:
+        time.sleep(0.05)
     assert srv.pipe.aborted == ['t1'] and srv.pipe.finished == []
     assert not os.path.exists(os.path.join(srv.pipe.folder, 'source.mp4')) or \
         os.path.getsize(os.path.join(srv.pipe.folder, 'source.mp4')) <= 5000 + 1000      # it stopped writing at the cap
