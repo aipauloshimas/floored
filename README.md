@@ -11,8 +11,9 @@ on your computer.
 ## Requirements
 
 - **Claude Code** (the desktop app or the CLI).
-- **Windows 11** or **macOS 13 or newer**. It is tested on Windows 11. It has not been tested on a real Mac yet, so
-  expect rough edges there and please report them.
+- **Windows 11** or **macOS 13 or newer**. It is tested by hand on Windows 11. On macOS it is checked by automated
+  tests on GitHub's Mac machines (Apple silicon): a clean setup, real cutouts and exports. Nobody has tried it on a
+  real Mac yet, so please report anything that looks off there.
 - A computer with no special graphics card. It runs on the processor by default. The graphics card is used only if
   the setup's quality check shows the result is identical.
 - **Python 3.10 or newer, Node.js 22 or newer, ffmpeg, and Chrome or Edge** (any Chromium browser works). If one is missing,
