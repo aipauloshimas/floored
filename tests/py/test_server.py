@@ -62,7 +62,7 @@ def ftcli(tmp_path_factory):
         except subprocess.TimeoutExpired:
             pass
         rec = server.read_server_file(paths.Workspace(w))
-        if rec and cli.pid_alive(rec.get('pid') or 0):
+        if rec and rec.get('pid') != os.getpid() and cli.pid_alive(rec.get('pid') or 0):   # silent_server records this very process
             cli.kill_tree(rec['pid'])
 
 

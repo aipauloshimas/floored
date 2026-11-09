@@ -23,7 +23,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -51,13 +51,20 @@ jobs:
           $PY -m pip install --upgrade pip
           $PY -m pip install -r requirements.txt -r requirements-dev.txt
       - name: fast Python suite
-        run: $PY -m pytest -q
+        run: $PY -m pytest -v --tb=short -rfE --junitxml=pytest-fast.xml
       - name: node suite
         run: node --test tests/js/
       - name: browser suite (Chrome on macOS, Edge on Windows)
         run: |
           npm ci
           npx playwright test
+      - name: keep the test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-${{ matrix.os }}
+          path: pytest-*.xml
+          if-no-files-found: ignore
 
   install:
     strategy:
@@ -106,4 +113,11 @@ jobs:
           $PY -m pip install --upgrade pip
           $PY -m pip install -r requirements.txt -r requirements-dev.txt
       - name: slow suite (real cutouts, the sample export, 4K)
-        run: $PY -m pytest -m slow -v --durations=15
+        run: $PY -m pytest -m slow -v --tb=short -rfE --durations=15 --junitxml=pytest-slow.xml
+      - name: keep the test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-${{ matrix.os }}
+          path: pytest-*.xml
+          if-no-files-found: ignore
