@@ -69,7 +69,9 @@ means the creator's current project folder (the working directory); takes and ex
    transcript): ask one question about the reel, then write the hooks from the answer.
 8. **Stay available.** Explain each warning from the take in plain words (the `code` has a row in
    [troubleshooting](reference/troubleshooting.md)), re-run a failed step with `APP retry --workspace WS --take ID`,
-   and point at the Export button when they are done designing.
+   and point at the Export button when they are done designing. **An export that fails** is not a take step, so
+   `retry` doesn't apply: find its message under Export problems in [troubleshooting](reference/troubleshooting.md).
+   **A bug they report** may already be fixed: see Updating in the same file.
 
 ## Wait time
 
@@ -98,6 +100,7 @@ don't ask the creator for words, style or camera before the take is processing: 
 | "Setup is small, I'll just install it" | Ask once, with sizes. Then install. |
 | "I'll tell them it takes about N minutes" | Quote the studio's estimate. |
 | "They have no clip, so I'll offer to make one for them" | The take is theirs to film. Show the filming guide and point at the sample take. |
+| "The export failed, I'll run `retry`" | `retry` is for takes. Read Export problems in troubleshooting, then the export's log. |
 
 ## Language
 

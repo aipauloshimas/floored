@@ -119,13 +119,23 @@ Warnings don't stop the take. Explain the ones that matter, with the fix for nex
 ## Export problems (the creator presses Export; Claude only explains)
 
 The creator sees the message in the Export dialog. Never render or fix it from Bash. Tell them what it means and to
-press Export again, or to press it again after the setup step.
+press Export again, or to press it again after the setup step. `retry` is for takes: it does nothing for an export.
+
+- **The same message twice:** don't ask for a third try. Read `WS/floored/exports/<id>/export.log` (the newest folder
+  in `WS/floored/exports/`) and tell them in plain words what stopped it. When it is nothing they can change (a failed
+  check, an error in the app), it is a bug in the app: say so, and offer the update as a maybe (Updating, below). You
+  don't know that a fix is out, so never promise one.
+- **A video left in that folder:** when the check stopped the export, the folder holds `<take name> - floored.mp4`, the
+  picture with its sound, which is the file the check measured. It is theirs, but it is not the finished export: the
+  check stopped it for a reason. Say where it is and exactly what the log says is wrong with it, then let them decide.
+  Never call it finished, and never repair it from Bash. `render.mp4` and `video.mp4` are earlier steps with no sound:
+  never hand those over as the video.
 
 | Message | Claude does |
 |---|---|
 | "The video maker isn't installed yet. Ask Claude to finish the setup." / "The export engine isn't built yet (missing ...)." | Run `doctor --install renderer` (after consent), then they press Export again. |
 | "This take isn't ready yet." / "This take is missing X. Drop the clip in again." / "This take has not been measured yet." | `wait` for the take, or `add` the clip again. |
-| "The export didn't come out at your take's quality, so we stopped. Try again, and if it keeps happening, ask Claude for help." | They press Export again. If it repeats, read `WS/floored/exports/<id>/export.log` (the line `CHECK FAILED` has the numbers; the export is the newest folder in `WS/floored/exports/`) and tell them what you find. A line that starts `note:` about the video bitrate is information: it never stops an export. |
+| "The export didn't come out at your take's quality, so we stopped. Try again, and if it keeps happening, ask Claude for help." | They press Export again. If it repeats, read `WS/floored/exports/<id>/export.log` (the line `CHECK FAILED` has the numbers; the export is the newest folder in `WS/floored/exports/`) and tell them what you find, in plain words (`loudness` is how loud the sound came out: -15.7 LUFS is quieter than -14). A line that starts `note:` about the video bitrate is information: it never stops an export. |
 | "The video couldn't be encoded: ..." (the text after the colon is the last lines of the encoder's output) | The render finished but the second step, the final encode, stopped. Check disk space and that the computer isn't asleep, then they press Export again. If it repeats, read the end of `WS/floored/exports/<id>/export.log`; the intermediate render stays in that folder (`render.mp4`). |
 | "Something went wrong while exporting (...)." (the brackets hold an error type and text, e.g. `FileNotFoundError: ...`) | A bug or a missing program, not the creator's doing. Read `WS/floored/exports/<id>/export.log` (the traceback is at the end) and tell them what you find. If the text names ffmpeg or a missing file, run `doctor` and fix what it reports, then they press Export again. A take's own details are in `WS/floored/takes/<id>/log.txt`. |
 | "The video took too long to process, so we stopped. Try again, and if it keeps happening, ask Claude for help." | A step of the export hung (its command and the seconds are in `export.log`). They press Export again; check that the computer isn't asleep or short of disk space. |
