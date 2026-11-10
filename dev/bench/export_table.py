@@ -27,7 +27,7 @@ import sys
 from fractions import Fraction
 
 MIN_MBPS = 8.0
-BITRATE_TOLERANCE = 0.98          # same as BITRATE_TOLERANCE in ft/export.py: the file must reach this share of max(take, 8 Mbps)
+BITRATE_TOLERANCE = 0.98          # the share of max(take, 8 Mbps) this table counts as reached (the export itself never stops on the bitrate)
 LUFS, LUFS_TOL, TP_MAX, TP_SLACK = -14.0, 1.0, -1.0, 0.1
 SR = 48000
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -321,10 +321,18 @@ def test_check_output_names_every_shortfall(tmp_path):
     out = {'w': 1080, 'h': 1920, 'fps': 24, 'fpsStr': '24', 'bitrate': 5_000_000}
     problems, _ = export.check_output(str(f), out, 24, False)
     text = ' | '.join(problems)
-    assert 'size 540x960' in text and 'frame rate 25' in text and '20 frames' in text and 'bitrate' in text
+    assert 'size 540x960' in text and 'frame rate 25' in text and '20 frames' in text
+    assert 'bitrate' not in text                                               # the video bitrate is never a problem
     ntsc = {'w': 540, 'h': 960, 'fps': 23.976, 'fpsStr': '24000/1001', 'bitrate': 1_000_000}
     f2 = _clip(tmp_path / 'ntsc.mp4', size='540x960', rate='24000/1001', n=10, bitrate='9M')
     assert export.check_output(str(f2), ntsc, 10, False)[0] == []              # compared as rationals, not floats
+
+
+def test_a_file_under_the_floor_is_not_a_problem(tmp_path):
+    f = _clip(tmp_path / 'thin.mp4', n=24, bitrate='2M')
+    out = {'w': 1080, 'h': 1920, 'fps': 24, 'fpsStr': '24', 'bitrate': 30_000_000}
+    problems, numbers = export.check_output(str(f), out, 24, False)
+    assert problems == [] and numbers['videoBitrate'] < 0.98 * 30e6
 
 
 def test_check_output_checks_the_loudness_only_when_the_voice_is_in(tmp_path):
@@ -423,6 +431,33 @@ def test_sample_original(server_factory, work):
     d = st['details']
     assert d['tier'] == 1 and d['notes'] == [], d
     print('sample export: %s' % json.dumps({k: d[k] for k in ('width', 'height', 'fps', 'videoBitrate', 'lufs', 'truePeak', 'timings')}))
+
+
+@pytest.mark.slow
+def test_a_take_with_a_high_bitrate_still_exports(server_factory, work):
+    """A take recorded at about 30 Mbps: the floor is 30 Mbps and the encoder cannot reach it on a flat picture, but the
+    export is never refused over its video bitrate."""
+    project = work / 'hi-bitrate-proj'
+
+    def mutate(take, d):
+        take['bitrate'] = 30_000_000
+        take['out'] = dict(take.get('out') or {}, bitrate=30_000_000)
+
+    make_take(project, 'hi', mutate)
+    srv = server_factory(project, extra_env=renderer_env())
+    t0 = time.time()
+    st = run_export(srv, 'hi')
+    WALL['30 Mbps export'] = round(time.time() - t0, 1)
+    log = export_log(project, st)
+    assert 'floor 30.00 Mbps' in log, log[-1500:]                      # the take's bitrate really raised the floor
+    assert 'floor re-encode: ran' in log, log[-1500:]
+    assert st['stage'] == 'done', (st, log[-1500:])
+    assert 'CHECK FAILED' not in log and 'wanted at least' not in log
+    assert os.path.exists(st['path'])
+    got = export.probe_output(st['path'])
+    assert got['frames'] == 121 and got['rate'] == Fraction(24) and got['codec'] == 'h264'
+    if got['bitrate'] < 30e6:                                           # under the floor: the number reaches the log, as a note
+        assert 'note: video bitrate' in log and 'is under the 30.00 Mbps floor' in log
 
 
 @pytest.fixture(scope='module')
@@ -562,6 +597,27 @@ def test_a_shortfall_ends_in_error_and_the_numbers_go_to_the_log(tmp_path, serve
     assert 'CHECK FAILED' in log and 'size 540x960, wanted 1080x1920' in log and '"width": 540' in log
     kept = Path(project) / 'floored' / 'exports' / st['id'] / 'render.mp4'
     assert kept.exists() and 'kept the intermediate at %s' % kept in log          # one line for every failure that leaves it
+
+
+def test_a_file_under_the_floor_ends_done_with_one_note_in_the_log(tmp_path, server_factory):
+    """The take's floor is more than raw 1080x1920 video holds, so the finished file is under it on any machine: the export
+    still ends done, and the log carries one note with both numbers, never a failure."""
+    clip = _clip(tmp_path / 'any.mp4', n=121)
+    root = fake_renderer(tmp_path / 'fake-renderer', clip)
+    project = tmp_path / 'proj'
+
+    def mutate(take, d):
+        take['bitrate'] = 800_000_000
+        take['out'] = dict(take.get('out') or {}, bitrate=800_000_000)
+
+    make_take(project, 'heavy', mutate)
+    srv = server_factory(project, extra_env={'FLOORED_RENDERER_DIR': str(root)})
+    st = run_export(srv, 'heavy', events=[], wait=300)
+    log = export_log(project, st)
+    assert st['stage'] == 'done', (st, log[-1500:])
+    assert 'floor re-encode: ran' in log and 'CHECK FAILED' not in log and 'wanted at least' not in log
+    notes = [line for line in log.splitlines() if '  note: ' in line]
+    assert len(notes) == 1 and 'is under the 800.00 Mbps floor' in notes[0] and 'the file is kept' in notes[0], log[-1500:]
 
 
 def test_render_command_line_tier1_and_tier2(tmp_path, server_factory):

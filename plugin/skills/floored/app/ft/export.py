@@ -69,7 +69,6 @@ TIMEOUT_MARGIN = 3              # x the slowest known seconds-per-frame (stored 
 RENDER_SHARE = 0.7             # the render fills the progress bar up to here, the encode the rest
 CHECK_TIMEOUT = 150
 SKIP_CHECK = os.environ.get('FT_SKIP_CHECK', '1') == '1'   # `hyperframes check` only logs and adds 1-2 min; FT_SKIP_CHECK=0 runs it
-BITRATE_TOLERANCE = 0.98       # the file's video bitrate must reach this share of max(take bitrate, 8 Mbps)
 LUFS_TOLERANCE = 1.0
 EXPORT_ID = re.compile(r'[0-9]{8}-[0-9]{6}-[0-9a-f]{4}')
 IS_NT = os.name == 'nt'
@@ -294,10 +293,11 @@ def probe_bitrate(path):
 
 
 def check_output(path, out, frames, expect_lufs, expect_audio=False):
-    """The rule "never silent quality loss": returns (problems, numbers). `expect_lufs` is True when the voice is in the
-    mix (the loudness must then be -14 +- 1 LUFS); `expect_audio` is True when voice or effects are in (an AAC stream at
-    48 kHz must then exist). It measures once and returns everything `details` needs. An empty problems list means the file
-    is what the take asked for."""
+    """The rule "never silent quality loss": returns (problems, numbers). It checks the size, the frame rate, the frame
+    count, the audio and the loudness; never the video bitrate (a file under the take's bitrate is not a problem: the
+    worker logs it). `expect_lufs` is True when the voice is in the mix (the loudness must then be -14 +- 1 LUFS);
+    `expect_audio` is True when voice or effects are in (an AAC stream at 48 kHz must then exist). It measures once and
+    returns everything `details` needs. An empty problems list means the file is what the take asked for."""
     got = probe_output(path)
     problems = []
     if (got['width'], got['height']) != (out['w'], out['h']):
@@ -306,9 +306,8 @@ def check_output(path, out, frames, expect_lufs, expect_audio=False):
         problems.append('frame rate %s, wanted %s' % (got['rate'], parse_rate(out['fpsStr'])))
     if got['frames'] != frames:
         problems.append('%d frames, wanted %d' % (got['frames'], frames))
-    need = BITRATE_TOLERANCE * floor_mbps(out['bitrate']) * 1e6
-    if got['bitrate'] < need:
-        problems.append('video bitrate %.2f Mbps, wanted at least %.2f' % (got['bitrate'] / 1e6, need / 1e6))
+    # the video bitrate is not checked: a flat drawn picture comes out near lossless under the take's own bitrate, so a
+    # file under the floor is finished and fine (the worker logs the number)
     if expect_audio:
         first = got['audio'][0] if got['audio'] else None
         if not first:
@@ -687,10 +686,16 @@ class Exporter:
         audio_info = self._mix(job, video, voice if have_voice else None, sfx_wav if have_sfx else None, final, vdur)
         timings['sound'] = round(time.time() - t2, 1)
 
-        # the check: never call a file done that is below the take (no silent quality loss)
+        # the check: size, frame rate, frames, audio and loudness must match the take, or the export stops (the video
+        # bitrate never stops it: it is only logged below)
         problems, numbers = check_output(final, out, frames, bool(audio_info and audio_info.get('voice')),
                                          expect_audio=bool(audio_info))
         self._log(job, 'check: %s' % json.dumps(numbers, default=str))
+        floor_bps = floor_mbps(out['bitrate']) * 1e6
+        if numbers['videoBitrate'] < floor_bps:
+            self._log(job, "note: video bitrate %.2f Mbps is under the %.2f Mbps floor (the take's bitrate, %g Mbps at least). "
+                      "That never stops an export: the file is kept."
+                      % (numbers['videoBitrate'] / 1e6, floor_bps / 1e6, MIN_MBPS))
         if problems:
             self._log(job, 'CHECK FAILED: %s' % '; '.join(problems))
             raise ExportError(CHECK_FAILED, 500)
