@@ -67,8 +67,10 @@ test.describe('copy', () => {
       await expect(how).toContainText(r.title);
       await expect(how).toContainText(r.text);
     }
-    expect(md).toContain(guide.ai);
-    await expect(how).toContainText('AI-generated takes work when they follow the same rules: ask for that camera angle and no camera stand in the shot.');
+    // the guide is about where the camera goes and how to stand, nothing else
+    expect(guide.ai).toBeUndefined();
+    expect(md).not.toMatch(/\bAI\b/);
+    await expect(how).not.toContainText(/\bAI\b/);
     // the numbers the lead fixed
     const all = guide.rules.map((r) => r.title + ' ' + r.text).join(' ');
     for (const n of ['3 m up', '45–50°', '1×', '20%', '3 to 8 seconds']) {

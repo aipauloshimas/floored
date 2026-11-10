@@ -8,8 +8,6 @@ Show this to the creator before they record, or when a take has warnings. Plain 
 - **3 to 8 seconds.** Say your line to the lens.
 - **Good light, plain floor.** Even light and a floor with no pattern look best.
 
-AI-generated takes work when they follow the same rules: ask for that camera angle and no camera stand in the shot.
-
 ## Good to know
 
 - The clip should be tall (9:16) and filmed with the phone upright. Wide videos get cropped.

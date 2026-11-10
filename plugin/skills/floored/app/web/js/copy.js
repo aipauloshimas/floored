@@ -16,8 +16,7 @@ export var FILMING = {
       text: 'Say your line to the lens.' },
     { icon: 'sun', title: 'Good light, plain floor',
       text: 'Even light and a floor with no pattern look best.' }
-  ],
-  ai: 'AI-generated takes work when they follow the same rules: ask for that camera angle and no camera stand in the shot.'
+  ]
 };
 
 /* ---- waiting */

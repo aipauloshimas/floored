@@ -312,7 +312,6 @@ img { display: block; }
 .how-ico { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--panel-2); color: var(--accent); }
 .how-list strong { display: block; font-size: 14px; font-weight: 600; }
 .how-list p { margin-top: 2px; color: var(--muted); font-size: 13px; }
-.how-ai { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 
 .home-takes { margin-top: 64px; }
 .section-title { margin-bottom: 4px; font-size: 15px; font-weight: 600; }

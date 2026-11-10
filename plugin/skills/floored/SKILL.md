@@ -49,7 +49,8 @@ means the creator's current project folder (the working directory); takes and ex
    nothing until it is done, so a quiet screen is normal). A failed step: [troubleshooting](reference/troubleshooting.md).
 3. **No clip yet?** Show them [how to film it](reference/filming.md) in your own words (phone up high and a little
    in front, tilted down, not straight down, whole body, one spot, 3 to 8 s), then start the studio (step 4, no
-   `add`).
+   `add`). Its home page has a sample take: point at **Try the sample take**, so they can try the looks now and film
+   later. Never offer to generate the take or to make it for them: it is theirs to film.
 4. **Start the studio.** `APP serve --workspace WS --detach` prints `FLOORED_URL=<url>`. Open that URL in the desktop
    app's Browser pane when your tools have one; otherwise run the same command with `--open` (Chrome or Edge). If it
    prints `NO_CHROMIUM`, give them the address and say it needs Chrome, Edge, Brave or Arc. With no clip path, start `APP wait --workspace WS --next` in the
@@ -96,6 +97,7 @@ don't ask the creator for words, style or camera before the take is processing: 
 | "I'll hand-build it with the hyperframes skill, it's faster" | The app is the product. Use it. |
 | "Setup is small, I'll just install it" | Ask once, with sizes. Then install. |
 | "I'll tell them it takes about N minutes" | Quote the studio's estimate. |
+| "They have no clip, so I'll offer to make one for them" | The take is theirs to film. Show the filming guide and point at the sample take. |
 
 ## Language
 

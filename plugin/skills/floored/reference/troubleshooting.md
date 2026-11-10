@@ -111,7 +111,7 @@ Warnings don't stop the take. Explain the ones that matter, with the fix for nex
 | `aspect` | "This video isn't the usual tall phone shape (9:16), so the sides may be cropped..." | Continue or film again. |
 | `hdr` | "This is HDR video. We turn it into standard colors..." | Continue; colours may differ from the phone. |
 | `edge` | "Part of you touches the edge of the frame at <times>..." | Recommend stepping back or zooming out. |
-| `legs` | "We couldn't find your legs and feet, so the words may cover them. Film from a little further back and less straight down, so your legs show." | Recommend filming again at the guide's angle (about 45–50°, not straight down); for an AI take, ask for that angle in the prompt. |
+| `legs` | "We couldn't find your legs and feet, so the words may cover them. Film from a little further back and less straight down, so your legs show." | Recommend filming again at the guide's angle (about 45–50°, not straight down). |
 | `moved` | "Your feet move during the clip, so the words may not stay lined up with you..." | Recommend standing still. |
 | `people` | "It looks like there is more than one person in the frame..." | Recommend a take with only them. |
 | `noperson` | "We couldn't see a person in this clip. Make sure you are in the frame, from head to toe." | Recommend filming again. |

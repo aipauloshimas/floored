@@ -94,8 +94,7 @@ export function homeScreen() {
           h('h2', { id: 'how-title', class: 'card-title', text: FILMING.heading }),
           h('ul', { class: 'how-list' }, FILMING.rules.map(function (r) {
             return h('li', null, h('span', { class: 'how-ico' }, ico(r.icon)), h('div', null, h('strong', { text: r.title }), h('p', { text: r.text })));
-          })),
-          h('p', { class: 'how-ai', text: FILMING.ai }))),
+          })))),
       takesBox));
 
   api('/api/takes').then(function (list) {
