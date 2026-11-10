@@ -132,3 +132,17 @@ press Export again, or to press it again after the setup step.
 | "The video tools aren't installed yet. Ask Claude to finish the setup." | Run `doctor`, install what it lists (ffmpeg), then they press Export again. |
 | "The render didn't finish: ..." / "The video couldn't be finished." / "The sound couldn't be mixed." / "The finished video could not be read (...)." / "The rendered video could not be read (...)." / "The encoded video could not be read (...)." | They press Export again; check disk space and that the computer isn't asleep. If it repeats, read `export.log` in that export's folder. |
 | "Unknown font ..." / "The font file ... is missing" | Reinstall the plugin; the fonts ship with it. |
+
+## Updating
+
+floored doesn't update by itself. When the creator reports a bug, or the app doesn't do what this skill says, the fix
+may already be out. Offer the update, and on a yes run:
+
+```
+claude plugin marketplace update floored
+claude plugin update floored@floored
+```
+
+Then they start a new Claude Code session: the one that is open keeps the old skill. A studio that is still open
+keeps the old app too, so run `APP stop --workspace WS` first (the takes are kept). The installed version is the
+`version` in `<skill folder>/../../.claude-plugin/plugin.json`; the newest one is in the same file of the repository.

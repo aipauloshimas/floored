@@ -3,6 +3,7 @@ font and library carries its licence, and the plugin validates.
 
 Everything here looks at the files git tracks (a public clone has no others)."""
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -218,3 +219,25 @@ def test_plugin_validates(target):
     r = subprocess.run([shutil.which('claude'), 'plugin', 'validate', target], cwd=str(REPO),
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, 'claude plugin validate %s failed:\n%s%s' % (target, r.stdout, r.stderr)
+
+
+def _git(*args):
+    return subprocess.run(['git'] + list(args), cwd=str(REPO), capture_output=True, text=True, encoding='utf-8')
+
+
+def test_a_change_to_the_plugin_comes_with_a_new_version():
+    """Claude Code keeps an installed plugin by its version, so a fix pushed under the published version reaches nobody.
+    Compares the working tree with the published branch when this checkout knows one (skipped when it doesn't)."""
+    ref = next((r for r in ('github/main', 'origin/main')
+                if _git('rev-parse', '--verify', '--quiet', r + '^{commit}').returncode == 0), None)
+    if ref is None:
+        pytest.skip('this checkout has no published branch to compare with')
+    if _git('diff', '--quiet', ref, '--', 'plugin').returncode == 0:
+        return                                            # the plugin is what is published: nothing to bump
+    shown = _git('show', ref + ':plugin/.claude-plugin/plugin.json')
+    if shown.returncode != 0:
+        pytest.skip('the published branch has no plugin.json')
+    published = json.loads(shown.stdout)['version']
+    here = json.loads((REPO / 'plugin' / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8'))['version']
+    assert here != published, ('plugin/ differs from %s but the version is still %s: change "version" in '
+                               'plugin/.claude-plugin/plugin.json' % (ref, published))

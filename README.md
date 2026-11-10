@@ -35,6 +35,17 @@ claude plugin install floored@floored
 
 Or ask Claude Code to install it from this repository's URL.
 
+## Update
+
+floored doesn't update by itself. To get the latest fixes, run these in a terminal:
+
+```
+claude plugin marketplace update floored
+claude plugin update floored@floored
+```
+
+Then start a new Claude Code session. Or ask Claude Code to update the floored plugin.
+
 ## First run
 
 Ask Claude for a floor text intro: "make me a floor text intro", or drop your clip into the chat and say so. The first
