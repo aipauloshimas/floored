@@ -25,7 +25,8 @@ export function normWord(w) { return window.FTLayout.words(w).join(' '); }
 export function tokens(phrase) { return String(phrase || '').trim().split(/\s+/).filter(Boolean); }
 function letters(w) { return w.replace(/[^A-Za-z0-9À-ɏ]/g, ''); }
 export function autoHero(phrase) {
-  var t = tokens(phrase), best = '', i;
+  // only the words the floor draws: one it leaves out (another alphabet, an emoji) is no hero
+  var t = tokens(phrase).filter(function (w) { return normWord(w); }), best = '', i;
   for (i = 0; i < t.length; i++) if (letters(t[i]).toUpperCase() === 'TEXT') return normWord(t[i]);
   // the payoff word: usually the last one with some weight ("... for FREE")
   for (i = t.length - 1; i >= 0; i--) if (letters(t[i]).length >= 4) return normWord(t[i]);

@@ -126,6 +126,21 @@ test('characters the floor fonts cannot draw are named', async ({ page, baseURL 
   await expect(note).toBeHidden();
 });
 
+test('a word with letters the floor fonts lack is left out whole and named', async ({ page, baseURL }) => {
+  await openSample(page, baseURL);
+  await openTextSection(page, 'Type it');
+  const note = page.locator('[data-dropped]');
+  await page.getByLabel('Your words').fill('hello мир world');
+  await expect(note).toHaveText("Left out: мир (the floor fonts don't have these letters).");
+  // a left-out word is not offered as a hero word
+  await expect.poll(() => page.locator('[data-hero]').evaluateAll((els) => els.map((e) => e.textContent))).toEqual(['None', 'HELLO', 'WORLD']);
+  // a left-out word and an emoji: one sentence each
+  await page.getByLabel('Your words').fill('fire🔥 Привет');
+  await expect(note).toHaveText("Left out: Привет (the floor fonts don't have these letters). Left out: 🔥 (emoji and symbols don't fit the floor fonts).");
+  await page.getByLabel('Your words').fill('hello world');
+  await expect(note).toBeHidden();
+});
+
 test('switching looks never shows an empty floor', async ({ page, baseURL }) => {
   await openSample(page, baseURL);
   const looks = await readLooks(page);

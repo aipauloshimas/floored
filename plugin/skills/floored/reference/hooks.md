@@ -12,6 +12,10 @@ Read the ready result of `wait`: `hasWords`, `language`, `transcript`.
   Don't ask for the words, the style or anything else.
 - **Language**: the take's `language`. If it is empty or unknown, English. When you asked the question, use the language
   of the creator's answer.
+- **Letters**: the floor fonts draw Latin letters with the accents of Western and Central European languages
+  (Portuguese, Spanish, French, German, Polish, Turkish and others). A word with any other letter (Cyrillic, Greek,
+  Arabic, Hindi, Japanese, Korean, the Vietnamese accents) is left off the floor. For a take in one of those
+  languages, say so in one sentence and ask which language the hooks should be in.
 
 ## The rules
 

@@ -6,7 +6,7 @@
      build(take, settings) -> { theta, fontId, unit, rows, chunks, hero, timing }
      width(str, fontId, fontSize) -> px
      capWidth(str, fontId, s) -> px of `str` at CAP size s (font-size = s * unit)
-     unit(fontId), nudge(fontId, fontSize), rise(str, fontId, fontSize), depth(str, fontId, fontSize), words(phrase), dropped(phrase), keeps(ch), chunk(words, maxChars),
+     unit(fontId), nudge(fontId, fontSize), rise(str, fontId, fontSize), depth(str, fontId, fontSize), words(phrase), leftOut(phrase), dropped(phrase), report(phrase), keeps(ch), chunk(words, maxChars),
      camState(id, u), inOut(u), backOut(p), clamp01, lerp, PACES, THETA, CAP, ...
    }
    Everything is deterministic: the same (take, settings) always gives the same layout. */
@@ -141,7 +141,7 @@
 
   // ---- the text the floor can draw: Basic Latin, Latin-1, Latin Extended-A and ’ ‘ “ ” – — … € (dev/gen_metrics.py CHARSET,
   // minus U+00AD and U+0149). Every font table in metrics.js has a width for each of them; a font that lacks the glyph
-  // is drawn by Inter. Anything else (emoji, Cyrillic, CJK...) is left out, and dropped() says which.
+  // is drawn by Inter. Anything else (emoji, Cyrillic, CJK...) is left out: report() says which words went whole and which characters went alone.
   var KEEP_MARKS = [0x2018, 0x2019, 0x201C, 0x201D, 0x2013, 0x2014, 0x2026, 0x20AC];
   var INVISIBLE = /[\p{M}\p{Cf}]/u;                      // stray combining marks, variation selectors, zero-width and soft hyphen
   function keepsCode(c) {
@@ -152,31 +152,46 @@
   // upper-case without a locale (so "i" never becomes "İ"): ß -> SS; a letter whose capital the fonts lack (µ) stays as it is
   function upper(ch) { var u = ch.toUpperCase(); return allKept(u) ? u : ch; }
   function tidy(str) { return String(str == null ? '' : str).normalize('NFC').replace(/'/g, '’'); }
-  function words(phrase) {
-    return tidy(phrase).split(/\s+/).map(function (w) {
-      var out = '';
-      for (var ch of w) if (!INVISIBLE.test(ch) && (keeps(ch) || allKept(ch.toUpperCase()))) out += upper(ch);
-      return out.replace(/[.,;:]+$/, '');                           // no trailing periods on screen
-    }).filter(Boolean);
-  }
-  // the characters of `phrase` that words() leaves out (emoji, other scripts...), each once, in order. A combining mark that
-  // joins nothing ("x" + acute has no letter in the fonts) is lost too, so it is reported; the marks and joiners inside a
-  // left-out character (variation selectors, zero-width joiners, the mark after an emoji) are not.
-  var VARIATION = /[︀-️\u{E0100}-\u{E01EF}]/u, MARK = /\p{M}/u;
-  function dropped(phrase) {
-    var out = [], prev = 'none';                        // the last base character: none (start, space) | kept | left
-    for (var ch of tidy(phrase)) {
-      if (/\s/.test(ch)) { prev = 'none'; continue; }
-      if (INVISIBLE.test(ch)) {
-        if (MARK.test(ch) && !VARIATION.test(ch) && prev !== 'left' && out.indexOf(ch) < 0) out.push(ch);
-        continue;
+  // One pass over `phrase`, per whitespace-separated word. A word that needs a letter the fonts lack (Cyrillic, Greek, Arabic,
+  // CJK, Vietnamese tone letters...) is left out whole, so the floor never shows a wrong word ("TING" for "Tiếng"); the same
+  // goes for a combining mark that sits on a letter and joins nothing (x + acute). Anything else the fonts lack (emoji,
+  // symbols, a mark after nothing) is removed alone. A mark or joiner inside a removed emoji (variation selector, zero-width
+  // joiner, skin tone mark) is invisible and not reported. Returns
+  //   kept  the words the floor draws (upper-cased, no trailing . , ; :), in the order typed
+  //   words the typed words left out whole (trailing . , ; : cut), each once, in the order typed
+  //   chars the characters removed alone from words that stay, each once, in order
+  var VARIATION = /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u, MARK = /\p{M}/u, LETTER = /\p{L}/u;
+  function report(phrase) {
+    var kept = [], left = [], chars = [];
+    tidy(phrase).split(/\s+/).forEach(function (w) {
+      var out = '', whole = false, lost = [], prev = 'none', prevLetter = false;   // prev: the last base character: none | kept | left
+      for (var ch of w) {
+        if (INVISIBLE.test(ch)) {
+          if (MARK.test(ch) && !VARIATION.test(ch)) {
+            if (prev === 'kept' && prevLetter) whole = true;                    // a mark on a letter the fonts cannot compose
+            else if (prev !== 'left') lost.push(ch);                            // a mark that joins nothing
+          }
+          continue;
+        }
+        prevLetter = LETTER.test(ch);
+        if (keeps(ch) || allKept(ch.toUpperCase())) { prev = 'kept'; out += upper(ch); continue; }
+        prev = 'left';
+        if (prevLetter) whole = true; else lost.push(ch);
       }
-      if (keeps(ch) || allKept(ch.toUpperCase())) { prev = 'kept'; continue; }
-      prev = 'left';
-      if (out.indexOf(ch) < 0) out.push(ch);
-    }
-    return out;
+      if (whole) {
+        var shown = w.replace(/[.,;:]+$/, '');
+        if (shown && left.indexOf(shown) < 0) left.push(shown);
+        return;
+      }
+      lost.forEach(function (ch) { if (chars.indexOf(ch) < 0) chars.push(ch); });
+      out = out.replace(/[.,;:]+$/, '');                                        // no trailing periods on screen
+      if (out) kept.push(out);
+    });
+    return { kept: kept, words: left, chars: chars };
   }
+  function words(phrase) { return report(phrase).kept; }
+  function leftOut(phrase) { return report(phrase).words; }
+  function dropped(phrase) { return report(phrase).chars; }
   function strip(s) { return s.replace(/[^\p{L}\p{N}]/gu, ''); }
   function same(a, b) { var x = strip(a), y = strip(b); return x.length > 0 && x === y; }
 
@@ -538,7 +553,7 @@
   }
 
   root.FTLayout = {
-    build: build, width: width, capWidth: capWidth, unit: unit, nudge: nudge, rise: rise, depth: depth, words: words, dropped: dropped, keeps: keeps,
+    build: build, width: width, capWidth: capWidth, unit: unit, nudge: nudge, rise: rise, depth: depth, words: words, leftOut: leftOut, dropped: dropped, report: report, keeps: keeps,
     chunk: chunk, makeChunks: makeChunks,
     camState: camState, screenToPara: screenToPara, coverage: coverage, xRange: xRange, inOut: inOut, backOut: backOut,
     clamp01: clamp01, clamp: clamp, lerp: lerp, PACES: PACES, THETA: THETA, CAP: CAP, SLOTS: SLOTS, CAM_IDS: CAM_IDS, CAMS: CAMS

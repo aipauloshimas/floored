@@ -193,3 +193,14 @@ test('the hero the studio picks is a word the layout draws, even where "i" upper
     assert.equal(normWord('straße.'), 'STRASSE');
   } finally { String.prototype.toLocaleUpperCase = saved; }
 });
+
+test('the hero the studio picks is never a word the floor leaves out', () => {
+  const { autoHero } = studioHelpers();
+  // the last heavy word is in an alphabet the fonts lack, so the floor leaves it out whole: the hero is a word it draws
+  for (const [phrase, hero] of [['free Tiếng', 'FREE'], ['Tiếng Việt free', 'FREE'], ['hello мир world', 'WORLD'], ['мир text', 'TEXT']]) {
+    assert.equal(autoHero(phrase), hero, phrase);
+    assert.ok(L.words(phrase).indexOf(hero) >= 0, phrase + ': the hero is one of the words drawn');
+  }
+  assert.equal(autoHero('Привет мир'), '');                        // nothing on the floor: no hero
+  assert.equal(autoHero('Tiếng Việt rất đẹp'), '');
+});

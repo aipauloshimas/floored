@@ -331,16 +331,19 @@ export function createPanel(c) {
     count();
     var typedView = h('div', null, area, h('div', { class: 'field-foot' }, h('span', { class: 'muted', text: 'Short is best. Two to eight words.' }), counter));
 
-    /* characters the floor fonts cannot draw: named, so a missing emoji is no surprise */
+    /* what the floor fonts cannot draw, named so nothing goes missing silently: words with a letter they lack are left out
+       whole (never half a word on the floor), emoji and symbols are removed alone */
     var droppedText = h('span');
     var droppedNote = h('div', { class: 'inline-warn', 'data-dropped': '', role: 'status', hidden: true }, ico('alert', 'callout-ico', 16), droppedText);
     function showDropped(text) {
-      var list = window.FTLayout && window.FTLayout.dropped ? window.FTLayout.dropped(text) : [];
-      droppedNote.hidden = !list.length;
-      if (!list.length) return;
+      var r = window.FTLayout && window.FTLayout.report ? window.FTLayout.report(text) : { words: [], chars: [] };
+      var parts = [];
+      if (r.words.length) parts.push('Left out: ' + r.words.join(', ') + " (the floor fonts don't have these letters).");
       // a lone combining mark is drawn on a dotted circle, so it can be seen
-      droppedText.textContent = 'Left out: ' + list.map(function (ch) { return /\p{M}/u.test(ch) ? '◌' + ch : ch; }).join(' ') +
-        " (emoji and symbols don't fit the floor fonts).";
+      if (r.chars.length) parts.push('Left out: ' + r.chars.map(function (ch) { return /\p{M}/u.test(ch) ? '◌' + ch : ch; }).join(' ') +
+        " (emoji and symbols don't fit the floor fonts).");
+      droppedNote.hidden = !parts.length;
+      droppedText.textContent = parts.join(' ');
     }
 
     function renderView() {

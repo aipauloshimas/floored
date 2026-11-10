@@ -26,12 +26,13 @@ test('decomposed accents are composed first, invisible characters are not report
 
 test('a combining mark that joins nothing is reported, one inside a left-out character is not', () => {
   const u = String.fromCharCode;
-  assert.deepEqual(L.words('x' + u(0x301)), ['X']);
-  assert.deepEqual(L.dropped('x' + u(0x301)), [u(0x301)]);                       // "x" + acute: no such letter, the mark is lost
+  assert.deepEqual(L.words('x' + u(0x301)), []);                                // "x" + acute: no such letter, so the word is left out, never shown as "X"
+  assert.deepEqual(L.leftOut('x' + u(0x301)), ['x' + u(0x301)]);
+  assert.deepEqual(L.dropped('5' + u(0x301)), [u(0x301)]);                       // a mark on a digit joins no letter: the mark alone is lost
   assert.deepEqual(L.dropped('voce' + u(0x302) + ' ok'), []);                     // composes into ê: nothing lost
   assert.deepEqual(L.dropped(u(0x2764, 0xfe0f, 0x200d, 0x2728) + ' hi'), [u(0x2764), u(0x2728)]);   // variation selector and joiner: invisible
   assert.deepEqual(L.dropped(u(0x1f44d, 0x1f3fd) + ' ok'), [u(0x1f44d), u(0x1f3fd)]);
-  assert.deepEqual(L.dropped('x' + u(0x301, 0x301) + ' y' + u(0x301)), [u(0x301)]);                 // each reported once
+  assert.deepEqual(L.dropped(u(0x301) + 'ok 5' + u(0x301) + ' 6' + u(0x301)), [u(0x301)]);          // each reported once
 });
 
 test('Polish and other Latin Extended-A letters are kept', () => {
@@ -80,3 +81,64 @@ test('every font measures accented text with finite widths', () => {
 test('build is deterministic', () => assert.deepEqual(L.build(TAKE, S), L.build(TAKE, S)));
 
 test('a 10 s take: the camera move keeps its length', () => assert.ok(L.build(TAKE_10S, S).timing.Tc <= 4.6));
+
+// ---- words in alphabets the floor fonts lack (F-09): a word with such a letter is left out whole, never half a word
+const floorWords = (t) => L.words(t).join(' ');
+const dec = (str) => str.normalize('NFD');           // base letters followed by combining marks
+
+test('a word in an alphabet the fonts lack is left out whole', () => {
+  assert.deepEqual(L.words('Привет мир'), []);
+  assert.deepEqual(L.leftOut('Привет мир'), ['Привет', 'мир']);
+  assert.deepEqual(L.dropped('Привет мир'), []);
+  assert.deepEqual(L.words('こんにちは 世界 مرحبا'), []);
+});
+
+test('Vietnamese words with tone letters are left out, not shown with letters missing', () => {
+  assert.deepEqual(L.words('Tiếng Việt rất đẹp'), []);
+  assert.deepEqual(L.leftOut('Tiếng Việt rất đẹp'), ['Tiếng', 'Việt', 'rất', 'đẹp']);
+  // typed with combining marks (base letter, then the marks): the same words are left out, none is shown as "TING"
+  assert.deepEqual(L.words(dec('Tiếng Việt rất đẹp')), []);
+  assert.deepEqual(L.leftOut(dec('Tiếng Việt rất đẹp')), ['Tiếng', 'Việt', 'rất', 'đẹp']);
+});
+
+test('Latin-alphabet words still lay out, decomposed or not', () => {
+  assert.equal(floorWords('Olá ação coração'), 'OLÁ AÇÃO CORAÇÃO');
+  assert.equal(floorWords('Zażółć gęślą jaźń'), 'ZAŻÓŁĆ GĘŚLĄ JAŹŃ');
+  assert.equal(floorWords('ığüşöç'), 'IĞÜŞÖÇ');
+  assert.equal(floorWords(dec('Olá ação coração')), 'OLÁ AÇÃO CORAÇÃO');
+  for (const t of ['Olá ação coração', 'Zażółć gęślą jaźń', 'ığüşöç', dec('Olá ação coração')]) {
+    assert.deepEqual(L.leftOut(t), [], t);
+    assert.deepEqual(L.dropped(t), [], t);
+  }
+});
+
+test('emoji and symbols are removed alone, the word stays', () => {
+  assert.equal(floorWords('fire🔥 now'), 'FIRE NOW');
+  assert.deepEqual(L.dropped('fire🔥 now'), ['🔥']);
+  assert.deepEqual(L.leftOut('fire🔥 now'), []);
+  assert.equal(floorWords('go → now'), 'GO NOW');
+  assert.deepEqual(L.dropped('go → now'), ['→']);
+});
+
+test('one word with another alphabet is left out and the rest stays', () => {
+  assert.equal(floorWords('hello мир world'), 'HELLO WORLD');
+  assert.deepEqual(L.leftOut('hello мир world'), ['мир']);
+  assert.deepEqual(L.dropped('hello мир world'), []);
+});
+
+test('left-out words are reported once each, in the order typed, without trailing punctuation', () => {
+  assert.deepEqual(L.leftOut('мир, привет. мир привет!'), ['мир', 'привет', 'привет!']);
+  assert.deepEqual(L.leftOut('Привет, мир.'), ['Привет', 'мир']);
+  assert.deepEqual(L.report('a мир 🔥 b мир ✨'), { kept: ['A', 'B'], words: ['мир'], chars: ['🔥', '✨'] });
+});
+
+test('an emoji inside a left-out word is not reported on its own', () => {
+  assert.deepEqual(L.report('мир🔥 ok'), { kept: ['OK'], words: ['мир🔥'], chars: [] });
+});
+
+test('Latin-only phrases give the same words as before the alphabet rule (pinned)', () => {
+  assert.deepEqual(L.words("Here's how. Free text, now!"), ['HERE’S', 'HOW', 'FREE', 'TEXT', 'NOW!']);
+  assert.deepEqual(L.words('Crème brûlée à la façon de l’été – Ça va?'), ['CRÈME', 'BRÛLÉE', 'À', 'LA', 'FAÇON', 'DE', 'L’ÉTÉ', '–', 'ÇA', 'VA?']);
+  assert.deepEqual(L.words("Don't stop believing in 3 big things"), ['DON’T', 'STOP', 'BELIEVING', 'IN', '3', 'BIG', 'THINGS']);
+  assert.deepEqual(L.words('Größe und Straße'), ['GRÖSSE', 'UND', 'STRASSE']);
+});

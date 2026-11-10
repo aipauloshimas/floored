@@ -56,6 +56,10 @@ while it is processed. The studio shows the time left.
 Then you pick a look, edit the words if you like (Claude suggests a few hooks), and press **Export** yourself. Claude
 never presses it for you.
 
+The floor fonts draw Latin letters, with the accents of Western and Central European languages. Words in other
+alphabets (Cyrillic, Greek, Arabic, Hindi, Japanese, Korean) and words with Vietnamese accents are left off the floor
+for now.
+
 No clip yet? The studio's home page has a sample take, so you can try the looks first (it ships in
 `plugin/skills/floored/app/sample/`).
 
