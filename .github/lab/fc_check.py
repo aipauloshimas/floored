@@ -4,7 +4,7 @@ import sys
 
 
 def last_json(path):
-    text = open(path, encoding='utf-8', errors='replace').read()
+    text = open(path, encoding='utf-8-sig', errors='replace').read()
     try:
         return json.loads(text)
     except ValueError:

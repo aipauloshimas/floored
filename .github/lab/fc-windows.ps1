@@ -18,8 +18,13 @@ function Finder($extra) {
   return (@($o) -join "`n").Trim()
 }
 function Dr($name, $a) {
-  # runs floored.py <a...> with PY; stdout to $work\$name.out, stderr to $name.err; exit code in $script:rc
-  & $script:PY (Join-Path $app 'floored.py') @a > (Join-Path $work "$name.out") 2> (Join-Path $work "$name.err")
+  # runs floored.py <a...> with PY; stdout to $work\$name.out, stderr to $name.err; exit code in $script:rc.
+  # cmd does the redirection: PowerShell 5.1 would write UTF-16, and a pipe would stay open while the studio runs.
+  $q = (@($script:PY, (Join-Path $app 'floored.py')) + $a | ForEach-Object { '"' + $_ + '"' }) -join ' '
+  $o = Join-Path $work "$name.out"; $e = Join-Path $work "$name.err"
+  $bat = Join-Path $work "$name.cmd"
+  Set-Content -Path $bat -Encoding ascii -Value "@$q > `"$o`" 2> `"$e`""
+  & cmd /c $bat
   $script:rc = $LASTEXITCODE
 }
 function Tail($f, $n) { if (Test-Path $f) { Get-Content $f | Select-Object -Last $n } }
