@@ -170,12 +170,12 @@ jobs:
           $env:FLOORED_HOME = Join-Path $env:RUNNER_TEMP 'floored-home'
           New-Item -ItemType Directory -Force $env:FLOORED_HOME | Out-Null
           "python: $py"
-          & $py plugin/skills/floored/app/floored.py doctor --json > "$lab\doctor.json" 2> "$lab\doctor.err"
+          $j = (& $py plugin/skills/floored/app/floored.py doctor --json 2> "$lab\doctor.err") -join "`n"
           "doctor exit code: $LASTEXITCODE (1 is expected today)"
-          Get-Content "$lab\doctor.json"
+          $j
           "--- stderr:"; Get-Content "$lab\doctor.err" -ErrorAction SilentlyContinue
           "--- items (id, ok, found):"
-          & $py -c "import json,sys; d=json.load(open(sys.argv[1], encoding='utf-8-sig')); [print('ITEM', i['id'], 'ok=%s' % i['ok'], 'found=%s' % i.get('found')) for i in d['items']]" "$lab\doctor.json"
+          $j | & $py -c "import json,sys; d=json.load(sys.stdin); [print('ITEM', i['id'], 'ok=%s' % i['ok'], 'found=%s' % i.get('found')) for i in d['items']]"
           exit 0
 
       - name: put the machine back
@@ -198,6 +198,9 @@ jobs:
       LAB_SYS: darwin-arm64
     steps:
       - uses: actions/checkout@v4
+      - name: experiment, which file answers with only Xcode and the command line tools gone
+        continue-on-error: true
+        run: sh .github/lab/mac-experiment.sh
       - name: strip the machine
         run: sh .github/lab/mac-strip.sh
       - name: prove it is bare
@@ -221,6 +224,9 @@ jobs:
       LAB_SYS: darwin-x64
     steps:
       - uses: actions/checkout@v4
+      - name: experiment, which file answers with only Xcode and the command line tools gone
+        continue-on-error: true
+        run: sh .github/lab/mac-experiment.sh
       - name: strip the machine
         run: sh .github/lab/mac-strip.sh
       - name: prove it is bare
