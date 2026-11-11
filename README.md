@@ -11,16 +11,17 @@ on your computer.
 ## Requirements
 
 - **Claude Code** (the desktop app or the CLI).
-- **Windows 11** or **macOS 13 or newer**. It is tested by hand on Windows 11. On macOS it is checked by automated
-  tests on GitHub's Mac machines (Apple silicon): a clean setup, real cutouts and exports. Nobody has tried it on a
-  real Mac yet, so please report anything that looks off there.
+- **Windows 11** or **macOS 13 or newer** (Apple silicon or Intel). It is tested by hand on Windows 11. The setup
+  from nothing (no Python, no Node.js, no ffmpeg; on a Mac no developer tools and no Homebrew either) is checked by
+  automated tests on GitHub's Windows and Mac machines, with real cutouts and exports. Nobody has tried it on a real
+  Mac yet, so please report anything that looks off there.
 - A computer with no special graphics card. It runs on the processor by default. The graphics card is used only if
   the setup's quality check shows the result is identical.
 - **Nothing to install by hand.** floored uses the Python (3.10 or newer), Node.js (22 or newer) and ffmpeg on your
   computer when they are there. When one is missing, setup downloads floored's own copy into floored's own folder:
   no installer, no password, and nothing else on your computer changes. The studio opens in the Claude desktop app's
   browser pane, or in Chrome or Edge (any Chromium browser works).
-- About 2 GB of free disk space for the one-time setup on a computer that starts with nothing (about 1 GB when
+- About 1.5 GB of free disk space for the one-time setup on a computer that starts with nothing (about 1 GB when
   Python, Node.js and ffmpeg are already there). Setup tells you the sizes before it downloads anything.
 - A clip: 9:16, one person, still camera, 3 to 8 seconds (up to 10 works with a warning).
 
