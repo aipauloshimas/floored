@@ -1,0 +1,235 @@
+# A lab workflow. It runs only on branches named lab/... and is never part of main.
+# Three "bare machines": each job strips GitHub's runner until it looks like a creator's computer with no developer
+# software, proves it, checks every pinned download of plugin/skills/floored/app/tools.txt for that system (size,
+# SHA-256, unpack, run, features) and runs floored's doctor with the freshly unpacked Python.
+# No secrets, standard runners only. The Mac steps are in .github/lab/mac-*.sh.
+name: lab
+
+on:
+  push:
+    branches: ['lab/**']
+
+permissions:
+  contents: read
+
+env:
+  PY_VERSION: '3.12.16'
+  NODE_VERSION: '22.23.4'
+  FFMPEG_VERSION: '9.0.2'
+
+jobs:
+  bare-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: strip the machine
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $away = 'C:\lab-away'
+          New-Item -ItemType Directory -Force $away | Out-Null
+          $manifest = Join-Path $away 'manifest.txt'
+          function Away($p) {
+            if (Test-Path -LiteralPath $p) {
+              $dest = Join-Path $away (($p -replace '[:\\ ()]', '_'))
+              try { Move-Item -LiteralPath $p -Destination $dest -ErrorAction Stop; "moved  $p"; "$p|$dest" | Add-Content $manifest }
+              catch { "FAILED to move $p : $($_.Exception.Message)" }
+            } else { "absent $p" }
+          }
+          $cands = @()
+          $cands += Get-ChildItem 'C:\Program Files' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|nodejs|nvm|ffmpeg|Volta)' } | ForEach-Object FullName
+          $cands += Get-ChildItem 'C:\Program Files (x86)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|nodejs|ffmpeg)' } | ForEach-Object FullName
+          $cands += "$env:LOCALAPPDATA\Programs\Python"
+          $cands += "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+          $cands += 'C:\ProgramData\chocolatey\lib\ffmpeg', 'C:\ProgramData\chocolatey\lib\nodejs', 'C:\ProgramData\chocolatey\lib\python3', 'C:\ProgramData\chocolatey\lib\python'
+          $cands += 'C:\ProgramData\nvm', 'C:\npm', "$env:APPDATA\npm", "$env:APPDATA\nvm", "$env:LOCALAPPDATA\nvm"
+          $cands += 'C:\ffmpeg', 'C:\Python3', 'C:\Python312', 'C:\Python311', 'C:\Python310'
+          foreach ($tc in @($env:RUNNER_TOOL_CACHE, $env:AGENT_TOOLSDIRECTORY, 'C:\hostedtoolcache\windows') | Where-Object { $_ } | Select-Object -Unique) {
+            "tool cache: $tc"
+            $cands += Get-ChildItem $tc -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|PyPy|node)' } | ForEach-Object FullName
+          }
+          foreach ($c in ($cands | Select-Object -Unique)) { Away $c }
+          # single files left on PATH folders (py.exe launcher, chocolatey shims, ...)
+          foreach ($d in ($env:PATH -split ';' | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)) {
+            if ($d -match '\\WindowsApps') { continue }
+            Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -match '^(python[0-9.]*|pythonw|py|pyw|pip[0-9.]*|node|npm|npx|corepack|ffmpeg|ffprobe|ffplay)$' } | ForEach-Object { Away $_.FullName }
+          }
+          foreach ($f in 'C:\Windows\py.exe', 'C:\Windows\pyw.exe') { Away $f }
+          "--- manifest:"; Get-Content $manifest -ErrorAction SilentlyContinue
+          exit 0
+
+      - name: prove it is bare
+        run: |
+          $ErrorActionPreference = 'Continue'
+          "PATH:"; ($env:PATH -split ';') | ForEach-Object { "  $_" }
+          "--- Get-Command:"
+          $found = @(Get-Command python, python3, py, node, npm, ffmpeg, ffprobe -ErrorAction SilentlyContinue)
+          $found | ForEach-Object { "  $($_.Name) -> $($_.Source)" }
+          if ($found.Count -eq 0) { "RESULT nothing found" }
+          $bad = @($found | Where-Object { $_.Source -notmatch '\\WindowsApps\\' })
+          if ($found.Count -gt 0 -and $bad.Count -eq 0) { "RESULT only Microsoft Store stubs under WindowsApps" }
+          "--- python --version:"
+          $o = & python --version 2>&1 | ForEach-Object { "$_" }; "output: $o"; "exit code: $LASTEXITCODE"
+          "--- powershell: $($PSVersionTable.PSVersion)"
+          "--- browsers: chrome $(Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'), edge $(Test-Path 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')"
+          if ($bad.Count -gt 0) { "STILL FOUND: $($bad.Source -join ', ')"; exit 1 }
+          exit 0
+
+      - name: every pinned download of win-x64
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $ProgressPreference = 'SilentlyContinue'
+          $sys = 'win-x64'
+          $lab = Join-Path $env:RUNNER_TEMP 'lab'
+          New-Item -ItemType Directory -Force $lab | Out-Null
+          $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+          $script:fails = 0
+          function Run($exe, [string[]]$a) { $o = & $exe @a 2>&1 | ForEach-Object { "$_" }; $script:rc = $LASTEXITCODE; $o }
+          function Fail($m) { "PIN FAIL $m"; $script:fails++ }
+          $pins = Get-Content plugin/skills/floored/app/tools.txt | Where-Object { $_.Trim() -and $_ -notmatch '^\s*#' } | ForEach-Object {
+            $f = $_.Trim() -split '\s+'
+            [pscustomobject]@{ tool = $f[0]; sys = $f[1]; bytes = [int64]$f[2]; sha = $f[3]; url = $f[4] }
+          } | Where-Object { $_.sys -eq $sys }
+          "pins for ${sys}: $(@($pins).Count)"
+          foreach ($p in $pins) {
+            $file = Join-Path $lab ([IO.Path]::GetFileName($p.url))
+            $dir = Join-Path $lab "$($p.tool)-$sys"
+            "=== $($p.tool) $sys  $($p.url)"
+            try { Invoke-WebRequest -UseBasicParsing -Uri $p.url -OutFile $file } catch { Fail "$($p.tool) $sys download: $($_.Exception.Message)"; continue }
+            $size = (Get-Item $file).Length
+            $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            "size $size (pinned $($p.bytes)), sha256 $sha"
+            if ($size -ne $p.bytes) { Fail "$($p.tool) $sys size $size != $($p.bytes)"; continue }
+            if ($sha -ne $p.sha) { Fail "$($p.tool) $sys sha $sha != $($p.sha)"; continue }
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            if ($file -match '\.tar\.gz$') { & $tar -xzf $file -C $dir; if ($LASTEXITCODE -ne 0) { Fail "$($p.tool) $sys tar exit $LASTEXITCODE"; continue } }
+            else { try { Expand-Archive -LiteralPath $file -DestinationPath $dir -Force } catch { Fail "$($p.tool) $sys unzip: $($_.Exception.Message)"; continue } }
+            "unpacked into $dir"
+            Remove-Item $file -Force
+            switch ($p.tool) {
+              'python' {
+                $py = Join-Path $dir 'python\python.exe'
+                $v = (Run $py @('--version')) -join ' '; "python --version: $v (exit $script:rc)"
+                if ($v -notmatch [regex]::Escape($env:PY_VERSION)) { Fail "python $sys version '$v'"; continue }
+                $venv = Join-Path $lab 'venv-test'
+                $o = Run $py @('-m', 'venv', $venv); "venv exit $script:rc"; $o
+                if ($script:rc -ne 0) { Fail "python $sys venv exit $script:rc"; continue }
+                $pipv = (Run (Join-Path $venv 'Scripts\pip.exe') @('--version')) -join ' '; "venv pip: $pipv (exit $script:rc)"
+                if ($script:rc -ne 0) { Fail "python $sys pip"; continue }
+                "PIN ok python $sys $size bytes sha ok, $v, venv pip ok ($pipv)"
+                $py | Set-Content (Join-Path $lab 'python-path.txt')
+              }
+              'node' {
+                $nd = (Get-ChildItem $dir -Directory | Select-Object -First 1).FullName
+                $v = (Run (Join-Path $nd 'node.exe') @('--version')) -join ' '; "node --version: $v (exit $script:rc)"
+                if ($v -notmatch [regex]::Escape($env:NODE_VERSION)) { Fail "node $sys version '$v'"; continue }
+                $old = $env:PATH; $env:PATH = "$nd;$env:PATH"
+                $npmv = (Run 'npm.cmd' @('--version')) -join ' '; $rc = $script:rc
+                $env:PATH = $old
+                "npm --version: $npmv (exit $rc)"
+                if ($rc -ne 0) { Fail "node $sys npm exit $rc"; continue }
+                "PIN ok node $sys $size bytes sha ok, node $v, npm $npmv"
+              }
+              'ffmpeg' {
+                $ff = Get-ChildItem $dir -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
+                $bin = $ff.DirectoryName
+                "bin folder: $bin"
+                $items = @(Get-ChildItem $bin -File)
+                $total = ($items | Measure-Object Length -Sum).Sum
+                "bin/ has $($items.Count) files, $total bytes ($([math]::Round($total/1MB,1)) MB):"
+                $items | ForEach-Object { "  $($_.Name)  $($_.Length)" }
+                $l1 = (Run (Join-Path $bin 'ffmpeg.exe') @('-hide_banner', '-version') | Select-Object -First 1); "ffmpeg: $l1"
+                if ($l1 -notmatch [regex]::Escape($env:FFMPEG_VERSION)) { Fail "ffmpeg $sys version '$l1'"; continue }
+                $filters = (Run (Join-Path $bin 'ffmpeg.exe') @('-hide_banner', '-filters')) -join "`n"
+                $encs = (Run (Join-Path $bin 'ffmpeg.exe') @('-hide_banner', '-encoders')) -join "`n"
+                $missing = @()
+                foreach ($f in 'zscale', 'tonemap', 'loudnorm', 'ebur128', 'amix') { if ($filters -notmatch "(?m)\s$f\s") { $missing += "filter:$f" } }
+                foreach ($e in 'libx264', 'libvpx-vp9', 'aac') { if ($encs -notmatch "(?m)\s$e\s") { $missing += "encoder:$e" } }
+                $pr = Get-ChildItem $dir -Recurse -Filter 'ffprobe.exe' | Select-Object -First 1
+                $pl1 = (Run $pr.FullName @('-hide_banner', '-version') | Select-Object -First 1); "ffprobe: $pl1"
+                if ($script:rc -ne 0) { $missing += 'ffprobe-run' }
+                if ($missing.Count -gt 0) { Fail "ffmpeg $sys missing: $($missing -join ', ')"; continue }
+                "PIN ok ffmpeg $sys $size bytes sha ok, $l1; filters zscale tonemap loudnorm ebur128 amix ok; encoders libx264 libvpx-vp9 aac ok; $pl1; bin $($items.Count) files $total bytes"
+              }
+              default { Fail "unknown tool $($p.tool)" }
+            }
+          }
+          "pins checked: $(@($pins).Count), failures: $script:fails"
+          if ($script:fails -gt 0 -or @($pins).Count -ne 3) { exit 1 }
+          exit 0
+
+      - name: the doctor on the bare machine
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $lab = Join-Path $env:RUNNER_TEMP 'lab'
+          $py = (Get-Content (Join-Path $lab 'python-path.txt')).Trim()
+          $env:FLOORED_HOME = Join-Path $env:RUNNER_TEMP 'floored-home'
+          New-Item -ItemType Directory -Force $env:FLOORED_HOME | Out-Null
+          "python: $py"
+          & $py plugin/skills/floored/app/floored.py doctor --json > "$lab\doctor.json" 2> "$lab\doctor.err"
+          "doctor exit code: $LASTEXITCODE (1 is expected today)"
+          Get-Content "$lab\doctor.json"
+          "--- stderr:"; Get-Content "$lab\doctor.err" -ErrorAction SilentlyContinue
+          "--- items (id, ok, found):"
+          & $py -c "import json,sys; d=json.load(open(sys.argv[1], encoding='utf-8-sig')); [print('ITEM', i['id'], 'ok=%s' % i['ok'], 'found=%s' % i.get('found')) for i in d['items']]" "$lab\doctor.json"
+          exit 0
+
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: |
+          $manifest = 'C:\lab-away\manifest.txt'
+          if (Test-Path $manifest) {
+            Get-Content $manifest | ForEach-Object { $a = $_ -split '\|'; if (Test-Path -LiteralPath $a[1]) { Move-Item -LiteralPath $a[1] -Destination $a[0] -ErrorAction SilentlyContinue } }
+          }
+          exit 0
+
+  bare-mac-arm:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: /bin/sh -e {0}
+    env:
+      LAB_SYS: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: strip the machine
+        run: sh .github/lab/mac-strip.sh
+      - name: prove it is bare
+        run: sh .github/lab/mac-prove.sh
+      - name: every pinned download of this system
+        run: sh .github/lab/mac-pins.sh
+      - name: the doctor on the bare machine
+        run: sh .github/lab/mac-doctor.sh
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: sh .github/lab/mac-restore.sh
+
+  bare-mac-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: /bin/sh -e {0}
+    env:
+      LAB_SYS: darwin-x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: strip the machine
+        run: sh .github/lab/mac-strip.sh
+      - name: prove it is bare
+        run: sh .github/lab/mac-prove.sh
+      - name: every pinned download of this system
+        run: sh .github/lab/mac-pins.sh
+      - name: the doctor on the bare machine
+        run: sh .github/lab/mac-doctor.sh
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: sh .github/lab/mac-restore.sh
