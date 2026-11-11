@@ -226,17 +226,20 @@ def make_shadow(person, dst, fps_str, frames, dur, k0, progress=None, log=None):
 
 
 def words_fields(src, has_audio, log, fn=None):
-    """The take fields of the words stage: transcript, language, words. Empty (and no warning, ever) when the clip has
-    no sound, speech recognition is not installed, or it fails; typed and suggested text still work then.
-    `fn(path, log)` replaces words.transcribe (an injected one is used without asking words.available())."""
+    """The take fields of the words stage: transcript, language, words, speechRead. Empty (and no warning, ever) when the
+    clip has no sound, speech recognition is not installed, or it fails; typed and suggested text still work then.
+    `speechRead` is True only when the reader ran without an exception, even when it found no words: the export needs it
+    to tell "nobody speaks in this take" from "nobody looked". `fn(path, log)` replaces words.transcribe (an injected one
+    is used without asking words.available())."""
+    unread = dict(words.empty(), speechRead=False)
     if not has_audio or (fn is None and not words.available()):
-        return words.empty()
+        return unread
     try:
         r = (fn or words.transcribe)(src, log)
     except Exception as e:                           # noqa: BLE001  (words are optional: never fail the take over them)
         log('speech recognition failed: %s' % e)
-        return words.empty()
-    return {'transcript': r['transcript'], 'language': r['language'], 'words': r['words']}
+        return unread
+    return {'transcript': r['transcript'], 'language': r['language'], 'words': r['words'], 'speechRead': True}
 
 
 # ----------------------------------------------------------------------------------------- the refusals, fast

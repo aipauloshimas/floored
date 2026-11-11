@@ -412,6 +412,35 @@ def test_a_take_with_a_high_bitrate_still_exports(server_factory, work):
         assert 'note: video bitrate' in log and "is under the take's 30.00 Mbps" in log
 
 
+@pytest.mark.slow
+def test_a_take_with_room_sound_and_no_speech_exports_with_its_sound_kept(server_factory, work):
+    """A real export of a clip whose sound is a quiet room and where the speech reader found nobody: it finishes (loudness
+    never stops it), says so in the notes, and the file's sound is at the recorded level, not raised to -14 LUFS."""
+    project = work / 'room-proj'
+    seen = {}
+
+    def mutate(take, d):
+        _room_track(d / 'audio.m4a', -11, seconds=6)
+        seen['source'] = export.loudness(str(d / 'audio.m4a'))[0]
+        take['hasAudio'] = True
+        take['words'] = []
+        take['speechRead'] = True
+
+    make_take(project, 'room', mutate)
+    srv = server_factory(project, extra_env=renderer_env())
+    t0 = time.time()
+    st = run_export(srv, 'room', events=[])                               # no effects: the file's sound is the take's own
+    WALL['room-sound export'] = round(time.time() - t0, 1)
+    log = export_log(project, st)
+    assert st['stage'] == 'done', (st, log[-1500:])
+    d = st['details']
+    assert d['audio']['roomSound'] is True and d['audio']['voice'] is False, d['audio']
+    assert d['notes'] == ['No speech was found in this take, so its sound was kept at its own level.'], d['notes']
+    assert 'room sound' in log and 'loudnorm' not in log and 'CHECK FAILED' not in log
+    got = lufs(st['path'])[0]
+    assert -50 < seen['source'] < -40 and abs(got - seen['source']) <= 1.5, (got, seen['source'])
+
+
 @pytest.fixture(scope='module')
 def tier2_take(work):
     """A copy of the sample take whose cutout was upscaled to 2160x3840 (lanczos, VP9 alpha, CRF 18, as in Task 2)."""
@@ -665,7 +694,7 @@ def test_every_export_helper_runs_ffmpeg_and_ffprobe_from_config_json_when_path_
     assert export.loudness(str(clip))[0] is not None
     exp = export.Exporter(None, tmp_path / 'exports')
     job = {'dir': str(tmp_path), 'id': 'x'}
-    info = exp._mix(job, str(clip), str(voice), str(sfx_wav), str(tmp_path / 'final.mp4'), 1.0)
+    info = exp._mix(job, str(clip), str(voice), str(sfx_wav), str(tmp_path / 'final.mp4'), 1.0, speech='words')
     assert info['voice'] is True and (tmp_path / 'final.mp4').exists()
     assert exp._mix(job, str(clip), None, None, str(tmp_path / 'silent.mp4'), 1.0) is None
 
@@ -708,9 +737,176 @@ def test_a_real_voice_is_still_held_to_minus_14(tmp_path):
     clip = _clip(tmp_path / 'c.mp4', n=72)
     voice = _silent_aac(tmp_path / 'v.m4a', level_db=-20)
     exp = export.Exporter(None, tmp_path / 'exports')
-    info = exp._mix({'dir': str(tmp_path), 'id': 'x'}, str(clip), str(voice), None, str(tmp_path / 'final.mp4'), 3.0)
+    info = exp._mix({'dir': str(tmp_path), 'id': 'x'}, str(clip), str(voice), None, str(tmp_path / 'final.mp4'), 3.0,
+                    speech='words')                                          # a -41 LUFS tone is a voice only when words were found
     assert info['voice'] is True
     assert abs(export.loudness(str(tmp_path / 'final.mp4'))[0] - -14.0) <= 1.0
+
+
+# -- room sound: a take's sound with no speech is kept at its own level ---------------------------------------------
+def test_speech_state_reads_what_the_speech_reader_said():
+    assert export.speech_state({'words': [{'word': 'hi', 'start': 0, 'end': 1}], 'speechRead': True}) == 'words'
+    assert export.speech_state({'words': [{'word': 'hi', 'start': 0, 'end': 1}]}) == 'words'
+    assert export.speech_state({'words': [], 'speechRead': True}) == 'none'              # the reader ran and found nothing
+    assert export.speech_state({'words': []}) == 'unknown'                                # a take from before the field existed
+    assert export.speech_state({}) == 'unknown'
+    assert export.speech_state({'words': [], 'speechRead': False}) == 'unknown'          # not installed, failed, no sound
+
+
+@pytest.mark.parametrize('lufs_now, speech, expected', [
+    (-31.4, 'none', False), (-14.0, 'none', False),                                       # the reader heard nobody: room sound
+    (-42.4, 'unknown', False), (-36.0, 'unknown', False), (-35.9, 'unknown', True), (-25.0, 'unknown', True),
+    (-62.0, 'words', False), (-50.0, 'words', False), (-49.9, 'words', True), (-20.0, 'words', True),
+    (None, 'unknown', True), (None, 'words', True), (None, 'none', False),              # not measurable: a voice, unless nobody speaks
+])
+def test_is_voice_by_what_the_reader_said_and_how_loud_the_track_is(lufs_now, speech, expected):
+    assert export.is_voice(lufs_now, speech) is expected
+
+
+def test_the_two_room_sound_thresholds_are_pinned():
+    assert export.ROOM_SOUND_LUFS == -36.0 and export.FAINT_VOICE_LUFS == -50.0
+
+
+def _room_track(path, volume_db, seconds=3, limit=False):
+    """A pink-noise room with a few clicks, as AAC (the clicks are no louder than the noise's own peaks, so the crest
+    factor is a real recording's). It reads about `volume_db` - 34 LUFS: -11 gives about -45 LUFS, 22 about -12 LUFS,
+    and `limit` then holds its peaks near 0 dBFS. Tests assert on loudness() of the file they get, never on this estimate."""
+    chain = 'aformat=channel_layouts=stereo' + (',alimiter=limit=0.97:level=0' if limit else '')
+    _ff('-f', 'lavfi', '-i', 'anoisesrc=d=%s:c=pink:r=48000:a=0.1' % seconds,
+        '-f', 'lavfi', '-i', "aevalsrc='if(lt(mod(t,0.7),0.005),0.15*sin(2*PI*1000*t),0)':s=48000:d=%s" % seconds,
+        '-filter_complex', '[0]volume=%gdB[n];[1]volume=%gdB[c];[n][c]amix=inputs=2:normalize=0,%s' % (volume_db, volume_db, chain),
+        '-c:a', 'aac', path)
+    return path
+
+
+def _mix_room(tmp_path, volume_db, speech, with_sfx=True, limit=False, monkeypatch=None):
+    """_mix on a room-sound track; returns (info, final path, the commands it ran, the export.log text, the track)."""
+    clip = _clip(tmp_path / 'c.mp4', n=72)
+    track = _room_track(tmp_path / 'r.m4a', volume_db, limit=limit)
+    sfx_wav = None
+    if with_sfx:
+        from ft import sfx
+        sfx_wav = str(tmp_path / 'sfx.wav')
+        sfx.write_wav(sfx_wav, sfx.synth(EVENTS, 3.0, export.SR), export.SR)
+    ran, real = [], export._run
+    monkeypatch.setattr(export, '_run', lambda cmd, timeout=export.HELPER_TIMEOUT: (ran.append(' '.join(map(str, cmd))), real(cmd, timeout))[1])
+    exp = export.Exporter(None, tmp_path / 'exports')
+    final = tmp_path / 'final.mp4'
+    kwargs = {} if speech is None else {'speech': speech}
+    info = exp._mix({'dir': str(tmp_path), 'id': 'x'}, str(clip), str(track), sfx_wav, str(final), 3.0, **kwargs)
+    log = (tmp_path / 'export.log').read_text(encoding='utf-8') if (tmp_path / 'export.log').exists() else ''
+    return info, final, ran, log, track
+
+
+def test_room_sound_is_kept_at_its_recorded_level_with_effects_at_their_alone_level(tmp_path, monkeypatch):
+    info, final, ran, log, track = _mix_room(tmp_path, -11, 'none', monkeypatch=monkeypatch)
+    source = export.loudness(str(track))[0]
+    assert -50 < source < -40, source                                                 # about -45 LUFS, as designed
+    assert info['voice'] is False and info['roomSound'] is True and info['sfx'] is True, info
+    assert info['sfxGainDb'] == -3.0, info                                            # the effects-alone gain
+    assert 'voiceLufs' in info and abs(info['voiceLufs'] - source) < 0.1, info
+    assert not any('loudnorm' in c for c in ran), 'no loudness pass for room sound'
+    assert 'room sound' in log and 'no loudness target' in log, log
+    assert [a['codec'] for a in export.probe_output(str(final))['audio']] == ['aac']
+    # the level: the same take with the effects off must read as the source does (amix must not change it)
+    sub = tmp_path / 'off'
+    sub.mkdir()
+    _, off_final, _, _, off_track = _mix_room(sub, -11, 'none', with_sfx=False, monkeypatch=monkeypatch)
+    got, want = export.loudness(str(off_final))[0], export.loudness(str(off_track))[0]
+    assert abs(got - want) <= 1.5, (got, want)
+    # and with the effects on, the file is the room plus the effects: never quieter than the room alone
+    assert export.loudness(str(final))[0] >= source - 1.5
+
+
+def test_a_track_with_no_speech_record_and_room_sound_loudness_is_room_sound(tmp_path, monkeypatch):
+    info, final, ran, log, track = _mix_room(tmp_path, -11, None, monkeypatch=monkeypatch)       # take from before `speechRead`
+    assert export.loudness(str(track))[0] <= export.ROOM_SOUND_LUFS
+    assert info['voice'] is False and info['roomSound'] is True and info['sfxGainDb'] == -3.0, info
+    assert not any('loudnorm' in c for c in ran)
+
+
+def test_a_loud_track_with_unknown_speech_is_a_voice_and_is_levelled_to_minus_14(tmp_path, monkeypatch):
+    info, final, ran, log, track = _mix_room(tmp_path, 9, None, with_sfx=False, monkeypatch=monkeypatch)
+    assert export.loudness(str(track))[0] > export.ROOM_SOUND_LUFS
+    assert info['voice'] is True and info['roomSound'] is False, info
+    assert abs(export.loudness(str(final))[0] - -14.0) <= 1.0
+
+
+def test_a_loud_track_that_the_reader_heard_nobody_in_is_room_sound(tmp_path, monkeypatch):
+    info, final, ran, log, track = _mix_room(tmp_path, 9, 'none', monkeypatch=monkeypatch)
+    assert export.loudness(str(track))[0] > export.ROOM_SOUND_LUFS
+    assert info['voice'] is False and info['roomSound'] is True and info['sfxGainDb'] == -3.0, info
+    assert not any('loudnorm' in c for c in ran)
+
+
+def test_the_voice_path_says_it_is_not_room_sound(tmp_path):
+    clip = _clip(tmp_path / 'c.mp4', n=72)
+    voice = _silent_aac(tmp_path / 'v.m4a', level_db=-20)
+    exp = export.Exporter(None, tmp_path / 'exports')
+    info = exp._mix({'dir': str(tmp_path), 'id': 'x'}, str(clip), str(voice), None, str(tmp_path / 'final.mp4'), 3.0, speech='words')
+    assert info['voice'] is True and info['roomSound'] is False and 'voiceLufs' in info
+    silent = _silent_aac(tmp_path / 's.m4a')
+    info = exp._mix({'dir': str(tmp_path), 'id': 'x'}, str(clip), str(silent), None, str(tmp_path / 'final2.mp4'), 3.0)
+    assert info['voice'] is False and info['roomSound'] is False                       # silent is not room sound
+
+
+def test_a_loud_room_sound_mix_is_turned_down_to_the_true_peak_ceiling(tmp_path, monkeypatch):
+    info, final, ran, log, track = _mix_room(tmp_path, 22, 'none', limit=True, monkeypatch=monkeypatch)
+    source_lufs, source_peak = export.loudness(str(track))
+    assert -16 < source_lufs < -9 and source_peak > -1.0, (source_lufs, source_peak)    # about -12 LUFS, peaks near 0 dBFS
+    assert info['roomSound'] is True
+    assert 'room sound: the mix peaks at' in log and 'turned down' in log, log
+    assert not any('loudnorm' in c for c in ran)
+    assert info['turnedDownDb'] > 0, info
+    # the mix is set to -1 dBTP before the AAC encode, which overshoots a little (0.1 dB here; it varies with the ffmpeg build)
+    assert export.loudness(str(final))[1] <= -0.5, export.loudness(str(final))
+
+
+def test_a_quiet_room_sound_mix_is_not_turned_down(tmp_path, monkeypatch):
+    info, final, ran, log, track = _mix_room(tmp_path, -11, 'none', monkeypatch=monkeypatch)
+    assert 'turned down' not in log
+
+
+class _FakePipe:
+    def __init__(self, folder):
+        self._folder = folder
+
+    def folder(self, take_id):
+        return str(self._folder)
+
+
+def _worker_run(tmp_path, monkeypatch, audio_info, numbers_lufs):
+    """Exporter._run with the renderer, the encode, the mix and the probe replaced: what is left is the worker's own logic
+    around the check. Returns (job, export.log text)."""
+    take_dir = tmp_path / 'take'
+    take_dir.mkdir()
+    for n in ('person.webm', 'shadow.webm'):
+        (take_dir / n).write_bytes(b'x')
+    (take_dir / 'take.json').write_text(json.dumps({'id': 't', 'dur': 1.0, 'fps': 24, 'frames': 24, 'w': 1080, 'h': 1920,
+                                                    'hasAudio': False, 'bitrate': 1, 'words': []}), encoding='utf-8')
+    exp = export.Exporter(_FakePipe(take_dir), tmp_path / 'exports')
+    job_dir = tmp_path / 'job'
+    job_dir.mkdir()
+    job = {'id': 'x', 'dir': str(job_dir), 'takeId': 't', 'settings': {'sound': {}}, 'events': [], 'font': 'anton.woff2',
+           'stage': 'writing', 'progress': 0, 'message': ''}
+    monkeypatch.setattr(export, 'renderer_bin', lambda: ['hf'])
+    monkeypatch.setattr(exp, '_stream', lambda j, cmd, on_line, timeout, **kw: ((job_dir / 'render.mp4').write_bytes(b'x'), (0, []))[1])
+    monkeypatch.setattr(export, 'probe_video', lambda path: {'duration': 1.0, 'codec': 'h264'})
+    monkeypatch.setattr(export, 'record_render_speed', lambda tier, spf: None)
+    monkeypatch.setattr(exp, '_encode', lambda *a, **k: {'crf': 14, 'bitrate': 1})
+    monkeypatch.setattr(exp, '_mix', lambda *a, **k: audio_info)
+    numbers = {'width': 1080, 'height': 1920, 'fps': 24.0, 'frames': 24, 'codec': 'h264', 'duration': 1.0, 'videoBitrate': 10**8,
+               'lufs': numbers_lufs, 'truePeak': -1.0, 'audio': []}
+    monkeypatch.setattr(export, 'check_output', lambda *a, **k: ([], numbers))
+    exp._run(job)
+    return job, (job_dir / 'export.log').read_text(encoding='utf-8')
+
+
+def test_room_sound_tells_the_creator_in_the_notes_and_logs_no_loudness_note(tmp_path, monkeypatch):
+    job, log = _worker_run(tmp_path, monkeypatch, {'voice': False, 'roomSound': True, 'sfx': True}, None)
+    assert job['stage'] == 'done', job
+    assert job['details']['notes'] == ['No speech was found in this take, so its sound was kept at its own level.']
+    assert 'note: loudness' not in log
 
 
 # -- M2: timeouts ---------------------------------------------------------------------------------------------------

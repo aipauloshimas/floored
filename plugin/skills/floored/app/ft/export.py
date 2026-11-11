@@ -9,9 +9,9 @@ One export at a time. Everything lands in exports/<stamp>/:
     index.html, assets/...       the filled composition (SPEC "Export template")
     render.mp4                   HyperFrames' near-lossless render (CRF 8)
     video.mp4                    our own encode of it (x264 CRF 14), picture only
-    sfx.wav, premix.wav          the synthesised effects, and voice + effects before loudness normalisation
+    sfx.wav, premix.wav          the synthesised effects, and the take's sound + effects before loudness normalisation
     (all of these, and assets/, are deleted once the export passed its check; a failed export keeps them for the log)
-    <take name> - floored.mp4 the result (video copied, AAC 192k, about -14 LUFS)
+    <take name> - floored.mp4 the result (video copied, AAC 192k; -14 LUFS when you speak in the take, its own level when no one does)
     job.json, status.json, export.log
 
 Renders keep the take's quality, from take.json's `out`: the take's size (1080x1920, or 2160x3840 for a 4K take), its
@@ -22,7 +22,8 @@ is whatever that gives: the log says it beside the take's own. The composition k
 is rendered with HyperFrames' own `--resolution portrait-4k` (Chrome at device scale 2) over the full-resolution cutout
 (`take.files.person`). The renderer is the locally installed, pinned HyperFrames (renderer_bin(); never npx), run with the
 telemetry opt-out so a finished setup works offline. Before `done` the file is probed (check_output): size, frame rate,
-frame count, video bitrate and loudness must match the take, or the export ends in `error` and says so.
+frame count, the audio stream and (when someone speaks in the take) the loudness must match the take, or the export ends
+in `error` and says so. The video bitrate is never a check: a file under the take's is a `note:` line in the log.
 """
 import json
 import os
@@ -47,6 +48,7 @@ TEMPLATE = os.path.join(ENGINE, 'composition.html')
 ENGINE_FILES = ['data.js', 'metrics.js', 'layout.js', 'engine.js', 'engine.css', 'gsap.min.js']   # GSAP 3.14.2 bundled: exports work offline
 HYPERFRAMES_VERSION = '0.9.22'              # pinned: Task 19 installs exactly this into <user dir>/renderer
 RENDERER_MISSING = "The video maker isn't installed yet. Ask Claude to finish the setup."
+ROOM_SOUND_NOTE = 'No speech was found in this take, so its sound was kept at its own level.'
 CHECK_FAILED = ("The export didn't come out at your take's quality, so we stopped. Try again, and if it keeps happening, "
                 "ask Claude for help.")
 DEFAULT_RENDER_SEC_PER_FRAME = {'1': 1.3, '2': 2.7}   # wall-clock s per frame until this machine has a measured value
@@ -73,6 +75,9 @@ HELPER_TIMEOUT_COPY = "The video took too long to process, so we stopped. Try ag
 TOOLS_MISSING = "The video tools aren't installed yet. Ask Claude to finish the setup."
 SILENT_VOICE_DB = -60.0        # a voice track whose loudest sample is under this counts as no voice (nothing to normalise to -14 LUFS)
 NO_LOUDNESS_LUFS = -70.0       # loudnorm's pass 1 reading at or under this (or -inf) means the same
+ROOM_SOUND_LUFS = -36.0        # with no word on record about speech, a track this quiet or quieter is room sound: on ten real
+                               # test clips the quietest speech reads -31.4 LUFS and the room-sound clip (footsteps) -42.4
+FAINT_VOICE_LUFS = -50.0       # even with words found, a track this quiet is mostly noise: raising it 36 dB to -14 LUFS would raise the noise
 
 
 class ExportError(Exception):
@@ -123,6 +128,25 @@ def num_text(x, places=3):
 def js_literal(obj):
     """JSON that is safe inside an inline <script>."""
     return (json.dumps(obj, ensure_ascii=False).replace('</', '<\\/').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029'))
+
+
+# -- what the take's sound is --------------------------------------------------------------------------------------
+def speech_state(take):
+    """What the speech reader said about a take: 'words' (it found some), 'none' (it ran and found nothing) or 'unknown'
+    (it is not installed, it failed, or the take was made before `speechRead` existed)."""
+    if take.get('words'):
+        return 'words'
+    return 'none' if take.get('speechRead') is True else 'unknown'
+
+
+def is_voice(lufs_now, speech):
+    """True when the take's sound is a voice to level to -14 LUFS, False when it is room sound to keep as recorded.
+    `lufs_now` is the track's integrated loudness (None when it cannot be measured); `speech` is speech_state()."""
+    if speech == 'none':
+        return False
+    if lufs_now is None:
+        return True
+    return lufs_now > (FAINT_VOICE_LUFS if speech == 'words' else ROOM_SOUND_LUFS)
 
 
 # -- the renderer and the take's quality ----------------------------------------------------------------------------
@@ -663,7 +687,8 @@ class Exporter:
         if have_sfx:
             sfx.write_wav(sfx_wav, sfx.synth(events, vdur, SR), SR)
         self._set(job, 'sound', 0.35, 'Mixing the sound')
-        audio_info = self._mix(job, video, voice if have_voice else None, sfx_wav if have_sfx else None, final, vdur)
+        audio_info = self._mix(job, video, voice if have_voice else None, sfx_wav if have_sfx else None, final, vdur,
+                               speech=speech_state(take))
         timings['sound'] = round(time.time() - t2, 1)
 
         # the check: size, frame rate, frames, audio and loudness must match the take, or the export stops (the video
@@ -675,6 +700,8 @@ class Exporter:
             self._log(job, "note: video bitrate %.2f Mbps is under the take's %.2f Mbps. That is normal for a drawn floor at "
                       "constant quality (CRF %d) and never stops an export."
                       % (numbers['videoBitrate'] / 1e6, take_bps / 1e6, ENCODE_CRF))
+        if audio_info and audio_info.get('roomSound'):
+            notes.append(ROOM_SOUND_NOTE)
         if problems:
             self._log(job, 'CHECK FAILED: %s' % '; '.join(problems))
             raise ExportError(CHECK_FAILED, 500)
@@ -722,13 +749,19 @@ class Exporter:
                   % (ENCODE_CRF, ENCODE_PRESET, got / 1e6, os.path.getsize(dest) / 1e6, take_bps / 1e6))
         return {'crf': ENCODE_CRF, 'bitrate': got}
 
-    def _mix(self, job, video, voice, sfx_wav, final, vdur):
-        """Voice + effects (6 dB under the voice peak) -> loudnorm two-pass -> AAC 192k beside the copied video.
-        Returns a dict describing the audio, or None when the result has no audio.
+    def _mix(self, job, video, voice, sfx_wav, final, vdur, speech='unknown'):
+        """What the take's sound is decides the mix. `speech` is speech_state(take): 'words', 'none' or 'unknown'.
+
+        A voice (see is_voice) + effects (6 dB under the voice peak) -> loudnorm two-pass -> AAC 192k beside the copied video.
+        Room sound (the take has sound but no speech: the speech reader found nobody, or the track is too quiet to be a voice)
+        is kept at its recorded level, the effects get their alone gain, nothing is normalised; only when the mix peaks over
+        TRUE_PEAK is it turned down, by the difference. Returns a dict describing the audio, or None when the result has no
+        audio.
 
         A voice track that is digital silence, or whose loudest sample is under -60 dBFS, or that loudnorm reads at -70 LUFS or
         lower (a single click), counts as no voice: the effects get their alone gain, nothing is normalised, and
-        `voice` is False, so the check does not ask for -14 LUFS (a take from an AI generator often carries a silent track)."""
+        `voice` is False, so the check does not ask for -14 LUFS (a take from an AI generator often carries a silent track).
+        That silent track is not room sound either: `roomSound` is False for it."""
         base = [_tool('ffmpeg'), '-hide_banner', '-nostdin', '-y']
         if not voice and not sfx_wav:
             self._log(job, 'no sound wanted or available: the video is kept without an audio track')
@@ -745,11 +778,19 @@ class Exporter:
         if audible:                                                # a single click is loud in peak but not in LUFS
             voice_lufs = loudness(voice)[0]
             audible = voice_lufs is None or voice_lufs > NO_LOUDNESS_LUFS
-        info = {'voice': audible, 'sfx': bool(sfx_wav)}
+        room = audible and not is_voice(voice_lufs, speech)        # sound, but nobody speaks in it: keep it as recorded
+        if room:
+            audible = False
+        info = {'voice': audible, 'roomSound': room, 'sfx': bool(sfx_wav), 'voiceLufs': voice_lufs}
         if peak is not None:
             info['voicePeakDb'] = peak
-        if voice and not audible:
+        if voice and not audible and not room:
             self._log(job, 'the voice track is silent (peak %s dBFS, %s LUFS): no voice in the mix, no loudness target' % (peak, voice_lufs))
+        if room:
+            self._log(job, "the take's sound is room sound (speech: %s, %s LUFS): kept at its level, no loudness target"
+                      % (speech, voice_lufs))
+        elif audible:
+            self._log(job, "the take's sound is a voice (speech: %s, %s LUFS): levelled to %g LUFS" % (speech, voice_lufs, LUFS))
 
         def gain_for(voice_audible):
             if voice_audible and peak is not None:
@@ -774,8 +815,9 @@ class Exporter:
                 parts.append('%samix=inputs=2:duration=longest:normalize=0[m]' % ''.join(labels))
             else:
                 parts.append('%sanull[m]' % labels[0])
-            code, out, err = _run(base + inputs + ['-filter_complex', ';'.join(parts), '-map', '[m]', '-ar', str(SR), '-c:a', 'pcm_s16le',
-                                                   premix])
+            # room sound is mixed in float: a sum over 0 dBFS must be measured (and turned down), not clipped on the way
+            code, out, err = _run(base + inputs + ['-filter_complex', ';'.join(parts), '-map', '[m]', '-ar', str(SR),
+                                                   '-c:a', 'pcm_f32le' if room else 'pcm_s16le', premix])
             if code != 0:
                 self._log(job, err[-1500:])
                 raise ExportError("The sound couldn't be mixed.", 500)
@@ -783,6 +825,13 @@ class Exporter:
         build_premix(gain_for(audible) if sfx_wav else 0.0)
 
         afilter = 'aresample=%d' % SR
+        if room:                                                   # no loudness target; only protect the peaks
+            mix_peak = loudness(premix)[1]
+            if mix_peak is not None and mix_peak > TRUE_PEAK:
+                down = mix_peak - TRUE_PEAK
+                afilter += ',volume=%.3fdB' % -down
+                info['turnedDownDb'] = round(down, 2)
+                self._log(job, 'room sound: the mix peaks at %+.1f dBTP, turned down %.1f dB' % (mix_peak, down))
         if audible:                                                # loudness target only makes sense with the voice in
             self._set(job, 'sound', 0.6, 'Matching the loudness')
             code, out, err = _run(base + ['-i', premix, '-af', 'loudnorm=I=%g:TP=%g:LRA=%g:print_format=json' % (LUFS, TRUE_PEAK, LRA),

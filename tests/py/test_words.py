@@ -63,7 +63,7 @@ def test_words_stage_without_whisper_stores_nothing_and_no_warning(monkeypatch, 
     monkeypatch.setattr(words, 'available', lambda: False)
     logged = []
     fields = pipeline.words_fields(tmp_path / 'source.mp4', True, logged.append)
-    assert fields == {'transcript': '', 'language': None, 'words': []}
+    assert fields == {'transcript': '', 'language': None, 'words': [], 'speechRead': False}
     assert 'warnings' not in fields
 
 
@@ -72,7 +72,7 @@ def test_words_stage_without_sound_skips_the_model(monkeypatch, tmp_path):
         raise AssertionError('must not transcribe a clip with no sound')
     monkeypatch.setattr(words, 'available', lambda: True)
     monkeypatch.setattr(words, 'transcribe', boom)
-    assert pipeline.words_fields(tmp_path / 'source.mp4', False, print) == {'transcript': '', 'language': None, 'words': []}
+    assert pipeline.words_fields(tmp_path / 'source.mp4', False, print) == {'transcript': '', 'language': None, 'words': [], 'speechRead': False}
 
 
 def test_words_stage_maps_the_result(monkeypatch, tmp_path):
@@ -80,7 +80,7 @@ def test_words_stage_maps_the_result(monkeypatch, tmp_path):
               'words': [{'word': 'Hi', 'start': 0.1, 'end': 0.3}, {'word': 'there.', 'start': 0.3, 'end': 0.6}]}
     monkeypatch.setattr(words, 'available', lambda: True)
     monkeypatch.setattr(words, 'transcribe', lambda p, log: result)
-    assert pipeline.words_fields(tmp_path / 'source.mp4', True, print) == result
+    assert pipeline.words_fields(tmp_path / 'source.mp4', True, print) == dict(result, speechRead=True)
 
 
 def test_words_stage_survives_a_failed_transcription(monkeypatch, tmp_path):
@@ -89,8 +89,27 @@ def test_words_stage_survives_a_failed_transcription(monkeypatch, tmp_path):
     logged = []
     monkeypatch.setattr(words, 'available', lambda: True)
     monkeypatch.setattr(words, 'transcribe', broken)
-    assert pipeline.words_fields(tmp_path / 'source.mp4', True, logged.append) == {'transcript': '', 'language': None, 'words': []}
+    assert pipeline.words_fields(tmp_path / 'source.mp4', True, logged.append) == {'transcript': '', 'language': None, 'words': [], 'speechRead': False}
     assert any('decoder fell over' in m for m in logged)
+
+
+def test_speech_read_says_whether_the_reader_ran(tmp_path):
+    """`speechRead` is how the export tells "nobody speaks" from "the reader was not there"."""
+    heard = lambda p, log: {'transcript': 'Hi.', 'language': 'en', 'words': [{'word': 'Hi.', 'start': 0.1, 'end': 0.3}]}   # noqa: E731
+    nothing = lambda p, log: {'transcript': '', 'language': None, 'words': []}                                          # noqa: E731
+    assert pipeline.words_fields(tmp_path / 's.mp4', True, print, fn=heard)['speechRead'] is True
+    quiet = pipeline.words_fields(tmp_path / 's.mp4', True, print, fn=nothing)
+    assert quiet['speechRead'] is True and quiet['words'] == []                       # the reader ran and found nobody
+    assert pipeline.words_fields(tmp_path / 's.mp4', False, print, fn=heard)['speechRead'] is False      # no sound in the clip
+
+
+def test_speech_read_is_false_when_the_reader_is_missing_or_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr(words, 'available', lambda: False)
+    assert pipeline.words_fields(tmp_path / 's.mp4', True, print)['speechRead'] is False     # not installed
+
+    def broken(p, log):
+        raise RuntimeError('boom')
+    assert pipeline.words_fields(tmp_path / 's.mp4', True, print, fn=broken)['speechRead'] is False
 
 
 class _Seg:
