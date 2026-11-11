@@ -1058,7 +1058,8 @@ def install(item_id, log=log):
     except DoctorError as e:
         return {'id': item_id, 'ok': False, 'message': str(e), 'code': 1}
     label = LABELS[item_id]                              # "The video maker is ready." but "ffmpeg is ready.": its name is written small
-    return {'id': item_id, 'ok': True, 'message': '%s is ready.' % (label if item_id == 'ffmpeg' else label[0].upper() + label[1:]), 'code': 0}
+    name = label if item_id == 'ffmpeg' else label[0].upper() + label[1:]
+    return {'id': item_id, 'ok': True, 'message': '%s %s ready.' % (name, 'are' if item_id == 'packages' else 'is'), 'code': 0}
 
 
 # -- running from the private environment --------------------------------------------------------------------------
