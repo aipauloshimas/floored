@@ -13,8 +13,8 @@ on your computer.
 - **Claude Code** (the desktop app or the CLI).
 - **Windows 11** or **macOS 13 or newer** (Apple silicon or Intel). It is tested by hand on Windows 11. The setup
   from nothing (no Python, no Node.js, no ffmpeg; on a Mac no developer tools and no Homebrew either) is checked by
-  automated tests on GitHub's Windows and Mac machines, with real cutouts and exports. Nobody has tried it on a real
-  Mac yet, so please report anything that looks off there.
+  automated tests on GitHub's Windows and Mac machines at every release, with real cutouts and exports. Nobody has
+  tried it on a real Mac yet, so please report anything that looks off there.
 - A computer with no special graphics card. It runs on the processor by default. The graphics card is used only if
   the setup's quality check shows the result is identical.
 - **Nothing to install by hand.** floored uses the Python (3.10 or newer), Node.js (22 or newer) and ffmpeg on your
