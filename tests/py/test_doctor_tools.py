@@ -506,6 +506,132 @@ def test_the_plain_report_with_the_real_pins_makes_no_network_connection(monkeyp
 
 
 # -- old Pythons -------------------------------------------------------------------------------------------------------------
+# -- safety of the unpacking and of the pins (the read before 0.1.3 went public) ---------------------------------------------
+def tar_of(path, entries):
+    """entries: ('dir', name) | ('file', name, text) | ('sym', name, target) | ('fifo', name), in this order in the archive."""
+    import io
+    with tarfile.open(str(path), 'w:gz') as t:
+        for entry in entries:
+            info = tarfile.TarInfo(entry[1])
+            if entry[0] == 'dir':
+                info.type, info.mode = tarfile.DIRTYPE, 0o755
+                t.addfile(info)
+            elif entry[0] == 'sym':
+                info.type, info.linkname = tarfile.SYMTYPE, entry[2]
+                t.addfile(info)
+            elif entry[0] == 'fifo':
+                info.type = tarfile.FIFOTYPE
+                t.addfile(info)
+            else:
+                data = entry[2].encode()
+                info.size, info.mode = len(data), 0o755
+                t.addfile(info, io.BytesIO(data))
+    return path
+
+
+def _can_link(folder):
+    try:
+        os.symlink('nothing', str(folder / 'probe-link'))
+    except (OSError, NotImplementedError):
+        return False
+    os.remove(str(folder / 'probe-link'))
+    return True
+
+
+system_tar = pytest.mark.skipif(sys.platform not in ('win32', 'darwin'), reason='the system tar of Windows and macOS')
+old_and_new = pytest.mark.parametrize('old_python', [False, True], ids=['with-the-filter', 'python-without-it'])
+# the first link is harmless on its own; the second one, read through the first, is the folder above
+CHAIN = [('dir', 'top'), ('dir', 'top/d'), ('sym', 'top/d/l', '.'), ('sym', 'top/e', 'd/l/../..'), ('file', 'top/e/evil.txt', 'out')]
+CHAIN_LATE = [('dir', 'top'), ('sym', 'top/e', 'd/l/../..'), ('dir', 'top/d'), ('sym', 'top/d/l', '.'), ('file', 'top/e/evil.txt', 'out')]
+
+
+@system_tar
+def test_a_python_without_the_safe_filter_unpacks_with_the_systems_own_tar(tmp_path, monkeypatch):
+    """tarfile's 'data' filter came with Python 3.12 (and late 3.10 and 3.11 updates). Without it, an unfiltered
+    extractall follows a chain of links out of the folder, so the system's tar does the unpacking: it refuses that."""
+    monkeypatch.delattr(tarfile, 'data_filter', raising=False)
+    ran = []
+    real = doctor.run
+    monkeypatch.setattr(doctor, 'run', lambda cmd, **kw: (ran.append(list(cmd)), real(cmd, **kw))[1])
+    archive = tar_of(tmp_path / 'plain.tar.gz', [('dir', 'top'), ('dir', 'top/bin'), ('file', 'top/bin/tool', 'hello'), ('file', 'top/LICENSE', 'mit')])
+    new = tmp_path / 'new'
+    new.mkdir()
+    doctor._unpack_tar(archive, new)
+    assert (new / 'bin' / 'tool').read_text() == 'hello' and (new / 'LICENSE').read_text() == 'mit'      # the top folder is dropped
+    assert not (new / 'top').exists()
+    assert len(ran) == 1 and os.path.basename(ran[0][0]).lower() in ('tar', 'tar.exe') and os.path.isabs(ran[0][0])
+
+
+@system_tar
+@old_and_new
+@pytest.mark.parametrize('entries', [CHAIN, CHAIN_LATE], ids=['chain', 'chain-declared-late'])
+def test_links_that_chain_out_of_the_folder_write_nothing_outside(tmp_path, monkeypatch, old_python, entries):
+    if not _can_link(tmp_path):
+        pytest.skip('this account cannot create symbolic links')
+    if old_python:
+        monkeypatch.delattr(tarfile, 'data_filter', raising=False)
+    archive = tar_of(tmp_path / 'evil.tar.gz', entries)
+    new = tmp_path / 'outer' / 'new'
+    new.mkdir(parents=True)
+    with pytest.raises((doctor.DoctorError, tarfile.TarError, OSError)):
+        doctor._unpack_tar(archive, new)
+    assert not (tmp_path / 'outer' / 'evil.txt').exists()
+    assert sorted(os.listdir(str(tmp_path / 'outer'))) == ['new']
+
+
+@system_tar
+@old_and_new
+def test_a_good_archive_keeps_its_links(tmp_path, monkeypatch, old_python):
+    """Only the Mac downloads hold links (bin/npm, bin/python3); the Windows ones are link-free."""
+    if WIN or not _can_link(tmp_path):
+        pytest.skip('links are a Mac matter')
+    if old_python:
+        monkeypatch.delattr(tarfile, 'data_filter', raising=False)
+    archive = tar_of(tmp_path / 'good.tar.gz', [('dir', 'top'), ('dir', 'top/bin'), ('dir', 'top/lib'), ('file', 'top/lib/npm.js', 'x'),
+                                                 ('sym', 'top/bin/npm', '../lib/npm.js')])
+    new = tmp_path / 'new'
+    new.mkdir()
+    doctor._unpack_tar(archive, new)
+    assert os.path.islink(str(new / 'bin' / 'npm')) and (new / 'bin' / 'npm').read_text() == 'x'
+
+
+@old_and_new
+@pytest.mark.parametrize('entries', [[('dir', 'top'), ('file', 'top/../evil.txt', 'out')],
+                                     [('dir', 'top'), ('sym', 'top/l', '../../evil')],
+                                     [('dir', 'top'), ('fifo', 'top/pipe')]], ids=['a-name-that-climbs', 'a-link-that-points-out', 'a-pipe'])
+def test_what_does_not_belong_in_a_download_is_refused_in_plain_words(tmp_path, monkeypatch, old_python, entries):
+    if old_python:
+        monkeypatch.delattr(tarfile, 'data_filter', raising=False)
+    archive = tar_of(tmp_path / 'odd.tar.gz', entries)
+    new = tmp_path / 'outer' / 'new'
+    new.mkdir(parents=True)
+    with pytest.raises(doctor.DoctorError) as e:
+        doctor._unpack_tar(archive, new)
+    assert 'not unpacked' in str(e.value) and not JARGON.search(str(e.value))
+    assert os.listdir(str(new)) == [] and sorted(os.listdir(str(tmp_path / 'outer'))) == ['new']
+
+
+@needs_pin
+@pytest.mark.parametrize('address', ['file:///C:/Windows/notepad.exe', 'ftp://example.com/node.zip', 'http://example.com/node.zip',
+                                     '//server/share/node.zip'])
+def test_a_pin_whose_address_is_not_https_downloads_nothing(tmp_path, monkeypatch, address):
+    """Only https, and plain http on this computer itself (the tests' own server), is ever opened."""
+    write_pins(tmp_path, monkeypatch, [pin('node', 10, 'a' * 64, address)])
+    opened = []
+    monkeypatch.setattr(doctor, '_opener', lambda url: opened.append(url))
+    result = doctor.install('node')
+    assert result['ok'] is False and 'https' in result['message'], result
+    assert opened == [] and not (tools_dir() / 'node').exists()
+
+
+def test_the_first_line_of_a_pin_wins_as_in_the_two_finder_scripts(tmp_path, monkeypatch):
+    f = tmp_path / 'twice.txt'
+    f.write_text('node win-x64 10 %s https://example.com/first.zip\nnode win-x64 20 %s https://example.com/second.zip\n' % ('a' * 64, 'b' * 64),
+                 encoding='utf-8')
+    monkeypatch.setenv('FLOORED_TOOLS_FILE', str(f))
+    assert doctor.read_pins()[('node', 'win-x64')] == {'bytes': 10, 'sha256': 'a' * 64, 'url': 'https://example.com/first.zip'}
+
+
 def test_doctor_py_uses_no_syntax_newer_than_python_3_7():
     """doctor.py is what starts on a Mac whose only Python is old: no match, no walrus, no `X | None`, no dict `|`."""
     source = (APP / 'ft' / 'doctor.py').read_text(encoding='utf-8')

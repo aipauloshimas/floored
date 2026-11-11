@@ -144,7 +144,7 @@ install_python() {
     fi
 
     mkdir -p "$TOOLS_DIR/python.new" || fail "Couldn't download Python (the file could not be unpacked). Check the internet connection and try again."
-    if ! tar -xzf "$TOOLS_DIR/python.part" -C "$TOOLS_DIR/python.new" >/dev/null 2>&1 || [ ! -d "$TOOLS_DIR/python.new/python" ]; then
+    if ! /usr/bin/tar -xzf "$TOOLS_DIR/python.part" -C "$TOOLS_DIR/python.new" >/dev/null 2>&1 || [ ! -d "$TOOLS_DIR/python.new/python" ]; then
         fail "Couldn't download Python (the file could not be unpacked). Check the internet connection and try again."
     fi
     rm -rf "$TOOLS_DIR/python"
