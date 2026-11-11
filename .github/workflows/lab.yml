@@ -1,0 +1,64 @@
+# Lab: the install job of ci.yml, but with Node.js 26 on PATH. Standard runners, no secrets.
+name: lab
+
+on:
+  push:
+    branches: ['lab/**']
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  node26:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    env:
+      FT: plugin/skills/floored/app/floored.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: node is v26
+        run: |
+          node --version
+          case "$(node --version)" in v26.*) ;; *) echo "not Node.js 26"; exit 1 ;; esac
+      - name: ffmpeg
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install ffmpeg ffmpeg-full; else choco install ffmpeg -y --no-progress; fi
+      - name: doctor, before anything is installed
+        run: python "$FT" doctor --json || true
+      - name: doctor --install venv
+        run: python "$FT" doctor --install venv
+      - name: doctor --install packages
+        run: python "$FT" doctor --install packages
+      - name: doctor --install rvm-model
+        run: python "$FT" doctor --install rvm-model
+      - name: doctor --install renderer
+        run: python "$FT" doctor --install renderer
+      - name: doctor --install words
+        run: python "$FT" doctor --install words
+      - name: doctor, everything installed
+        run: python "$FT" doctor --json
+      - name: dev venv
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = Windows ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          $PY -m pip install --upgrade pip
+          $PY -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: slow suite (real cutouts, the sample export, 4K)
+        run: $PY -m pytest -m slow -v --tb=short -rfE --durations=15 --junitxml=pytest-slow.xml
