@@ -185,7 +185,7 @@ def read_pins():
         if len(fields) != 5 or line.lstrip().startswith('#') or not fields[2].isdigit():
             continue
         tool, system, size, sha, url = fields
-        pins[(tool, system)] = {'bytes': int(size), 'sha256': sha.lower(), 'url': url}
+        pins.setdefault((tool, system), {'bytes': int(size), 'sha256': sha.lower(), 'url': url})     # the first line wins, as in get-python
     return pins
 
 
@@ -722,6 +722,9 @@ def _rmtree(path):
 
 def _download_pin(item_id, label, pin, part, log):
     """Download pin['url'] to `part`. The byte count and the SHA-256 must equal the pin, else the part file is deleted."""
+    address = urllib.parse.urlparse(pin['url'])
+    if address.scheme != 'https' and not (address.scheme == 'http' and address.hostname in ('127.0.0.1', 'localhost', '::1')):
+        raise DoctorError("floored only downloads over https, and the address it has for %s isn't one. Update floored." % label)
     part.parent.mkdir(parents=True, exist_ok=True)
     h = hashlib.sha256()
     done, shown = 0, 0
@@ -760,8 +763,16 @@ def _parts(name):
     return parts
 
 
+def _system_tar():
+    """The system's own tar: bsdtar on Windows 10 and later, and on macOS. It refuses to write through a link."""
+    return os.path.join(os.environ.get('SystemRoot') or r'C:\Windows', 'System32', 'tar.exe') if _win() else '/usr/bin/tar'
+
+
 def _unpack_tar(archive, dest):
-    """Unpack a .tar.gz into dest without its single top folder, keeping symbolic links."""
+    """Unpack a .tar.gz into dest without its single top folder, keeping symbolic links. A name that climbs out, a link
+    that points out and anything that is not a file, a folder or a link are refused here. What a chain of links could do
+    is left to tarfile's 'data' filter or, on a Python too old to have it (before 3.12, 3.11.4 and 3.10.12), to the
+    system's own tar: an unfiltered extractall would follow the chain out of the folder."""
     with tarfile.open(str(archive), 'r:*') as t:
         members = []
         for m in t.getmembers():
@@ -771,14 +782,22 @@ def _unpack_tar(archive, dest):
             m.name = '/'.join(parts)
             if m.islnk():
                 m.linkname = '/'.join(_parts(m.linkname)[1:])
-            elif m.issym() and not hasattr(tarfile, 'data_filter'):
-                if os.path.isabs(m.linkname) or os.path.normpath(os.path.join(os.path.dirname(m.name), m.linkname)).startswith('..'):
+            elif m.issym():
+                target = os.path.normpath(os.path.join(os.path.dirname(m.name), m.linkname)).replace('\\', '/')
+                if os.path.isabs(m.linkname) or re.match(r'^[A-Za-z]:', m.linkname) or target == '..' or target.startswith('../'):
                     raise DoctorError("The download holds a link that points outside floored's folder, so it was not unpacked.")
+            elif not (m.isfile() or m.isdir()):
+                raise DoctorError("The download holds something that is not a file, a folder or a link, so it was not unpacked.")
             members.append(m)
         if hasattr(tarfile, 'data_filter'):
             t.extractall(str(dest), members=members, filter='data')
-        else:
-            t.extractall(str(dest), members=members)
+            return
+    try:
+        code, _, err = run([_system_tar(), '-xf', str(archive), '-C', str(dest), '--strip-components', '1'], timeout=1800)
+    except (OSError, subprocess.SubprocessError) as e:
+        code, err = None, str(e)
+    if code != 0:
+        raise tarfile.TarError((err or 'the system tar did not run').strip().splitlines()[-1][:200])
 
 
 def _unpack_zip(archive, dest, place):
