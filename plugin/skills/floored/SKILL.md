@@ -16,33 +16,44 @@ video never leaves it. After setup it works offline.
 
 ## Run the app
 
-This skill's folder is given when the skill loads (its base folder). Every command is:
+This skill's folder is given when the skill loads (its base folder). **Find Python first, once per session.** Run
+the finder; it prints one line:
+
+- Windows: `powershell -NoProfile -ExecutionPolicy Bypass -File "<skill folder>\app\get-python.ps1"`
+- Mac: `sh "<skill folder>/app/get-python.sh"`
+
+`FLOORED_PYTHON=<path>`: that path is `PY`. `NO_PYTHON`: the computer has no Python 3.10 or newer, and the setup
+check needs one to start. Ask for it alone, before the question of step 2: floored downloads its own copy of Python
+(about 47 MB on Windows, 25 MB on a Mac) into its own folder, with no installer and no password, and nothing else
+on the computer changes. On a yes run the same command with `--install`; it prints `FLOORED_PYTHON=<path>`. Never
+call `python` or `python3` by hand instead: on a computer with no Python, Windows answers with its Store stub and a
+Mac opens Apple's developer-tools dialog. Every command is:
 
 ```
-python "<skill folder>/app/floored.py" <command> ...
+"PY" "<skill folder>/app/floored.py" <command> ...
 ```
 
-On Windows use `py -3` when `python` is missing or older than 3.10. If neither starts, or only the Windows Store stub
-answers (it opens the Store instead of printing a version), the doctor cannot run: make Python the first item of the
-setup question in step 2 (`winget install --id Python.Python.3.12 -e` on Windows, `brew install python@3.12` on a Mac,
-about 27 MB), run it on a yes, then start again from step 1. Below, `APP` means that command prefix and `WS`
-means the creator's current project folder (the working directory); takes and exports go in `WS/floored/`.
-`floored.py` hands over to its own private Python environment by itself. Run `APP <command> --help` for any flag.
+Below, `APP` means that command prefix and `WS` means the creator's current project folder (the working directory);
+takes and exports go in `WS/floored/`. `floored.py` hands over to its own private Python environment by itself. Run
+`APP <command> --help` for any flag.
 
 ## The flow
 
-1. **Setup check.** `APP doctor --json`. Exit 0 and `"ok": true`: skip to step 3. Otherwise go to step 2.
+1. **Setup check.** `APP doctor --json`. Exit 0 and `"ok": true`: skip to step 3. Otherwise go to step 2. When the
+   browser is the only item missing and your tools have a Browser pane, the setup is done too: the studio opens in
+   the pane.
 2. **Setup, with consent.** Ask **one** question that lists every item with `ok: false`, with its size (`mb`, plus
    `downloadMb` for the total) in plain words: "the cutout model (15 MB)", never the internal ids. Say that the video
    maker (`renderer`) is the long step and quote its `minutes` field: "the video maker (399 MB, about 12 minutes)", often
-   10 to 15. The speech reader carries `minutes` too (about 1). Items with
-   `how: "manual"` (Python, ffmpeg, Node.js, Chrome or Edge) are installed by the `command` in the report, and the
+   10 to 15. The speech reader carries `minutes` too (about 1). When Python, Node.js or ffmpeg is on the list, it is
+   floored's own copy: say what its `note` says (it goes into floored's own folder, and nothing else on the computer
+   changes). An item with `how: "manual"` (the browser) is installed by the `command` in the report, and the
    question says so. List the optional ones apart: "the speech reader" (`words`, reads the words from the creator's
    speech; without it they type the words) and the graphics-card check (`doctor --gpu-check`, no download, about a
-   minute). On a yes, first run the manual commands (Python, Node.js, ffmpeg, browser: `venv` needs Python and `renderer`
-   needs Node.js), then `APP doctor --json` again. Then run `APP doctor --install ITEM` for each accepted `auto` item in
-   this order: `venv`, `packages`, `rvm-model`, then `doctor --gpu-check` if they chose it, `renderer`, `words`; run
-   `APP doctor --json` once more. Install only what they accepted. **Run every `doctor --install` in the background**
+   minute). On a yes, run the manual command if there is one, then `APP doctor --install ITEM` for each accepted
+   `auto` item in this order: `python`, `node`, `ffmpeg` (the ones on the list), `venv`, `packages`, `rvm-model`, then
+   `doctor --gpu-check` if they chose it, `renderer`, `words`; run `APP doctor --json` once more. Install only what
+   they accepted. **Run every `doctor --install` in the background**
    (Bash `run_in_background`; `renderer` above all: the foreground tool stops at 10 minutes and the step takes longer
    than that on a slow PC) and wait for it to exit before starting the next one; never start a second install of the
    same item while one runs. While one runs, tell the creator it is still working (for the video maker: it prints almost

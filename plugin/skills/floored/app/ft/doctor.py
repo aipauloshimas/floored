@@ -1,7 +1,7 @@
 """floored doctor: checks what the studio needs and installs what it can, with the creator's consent (Claude asks first).
 
   floored.py doctor [--json]          the report below; exit 0 when every required item is fine, else 1
-  floored.py doctor --install ITEM    install one item (venv, packages, rvm-model, renderer, words) -> one JSON line
+  floored.py doctor --install ITEM    install one item (python, ffmpeg, node, venv, packages, rvm-model, renderer, words) -> one JSON line
   floored.py doctor --gpu-check       compare the graphics card with the processor on 12 sample frames (about a minute)
 
 Report: {"ok", "items": [{"id", "ok", "found", "need", "mb", "how": "auto"|"manual", "command", "note"}],
@@ -10,23 +10,34 @@ words (optional), gpu (optional). `how` "auto": `--install ID` does it. "manual"
 run it for them); the doctor then finds the new program even when this shell's PATH is stale, and records its absolute path
 in `config.json["tools"]` (read by proc.tool).
 
+Python, ffmpeg (with ffprobe) and Node.js are "auto" too when this system has a pinned download in `tools.txt` (one line per
+file: tool, system, size in bytes, SHA-256, address): `--install` downloads that file into floored's own folder
+`<user dir>/tools/<tool>/`, checks size and SHA-256, unpacks it with Python's own zipfile and tarfile, starts it once to prove it
+runs, and records it. No installer, no admin password, no PATH change; removing the folder removes the program. A system with no
+pin (or an older one that can't be told) gets the manual answer (winget, brew or the download page) as before.
+
 Standard library only: this module runs before the Python packages exist (every import of ft.* here is lazy and optional).
 `note` and `summary` are plain English for a creator: no jargon. The ids are internal.
 """
 import datetime
 import glob
 import hashlib
+import http.client
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
+from pathlib import Path
 
 from ft import paths
 from ft.proc import MissingTool, run, run_lines  # noqa: F401  (MissingTool re-exported for callers)
@@ -34,6 +45,7 @@ from ft.proc import MissingTool, run, run_lines  # noqa: F401  (MissingTool re-e
 ITEM_IDS = ['python', 'ffmpeg', 'node', 'browser', 'venv', 'packages', 'rvm-model', 'renderer', 'words', 'gpu']
 OPTIONAL_IDS = ('words', 'gpu')
 AUTO_IDS = ('venv', 'packages', 'rvm-model', 'renderer', 'words')
+TOOL_IDS = ('python', 'ffmpeg', 'node')                # also installed by floored itself, when this system has a pinned download
 PACKAGE_MODULES = ('numpy', 'onnxruntime')           # what the studio imports; cli.py answers exit 5 without them
 MIN_PYTHON = (3, 10)
 MIN_NODE = 22
@@ -63,6 +75,9 @@ MANUAL = {
     'node': {'winget': 'OpenJS.NodeJS.LTS', 'brew': 'node', 'page': 'https://nodejs.org/en/download'},
     'browser': {'winget': 'Google.Chrome', 'brew': 'google-chrome', 'cask': True, 'page': 'https://www.google.com/chrome/'},
 }
+WINGET_FLAGS = '--source winget --accept-source-agreements --accept-package-agreements --disable-interactivity'   # a fresh PC asks nothing
+OWN_COPY_NOTE = 'floored downloads its own copy into its own folder; nothing else on your computer changes.'
+OWN_COPY_KEEPS_YOURS = 'floored downloads its own copy into its own folder and leaves yours alone.'
 MAC_PAGE = {'ffmpeg': 'https://ffmpeg.org/download.html'}
 # Homebrew's plain `ffmpeg` has no zscale; `ffmpeg-full` has it but is keg-only, so it is never on PATH (Apple silicon, Intel).
 FULL_FFMPEG_DIRS = ['/opt/homebrew/opt/ffmpeg-full/bin', '/usr/local/opt/ffmpeg-full/bin']
@@ -150,6 +165,63 @@ def forget_tool(name):
         _write_json(_config_path(), cfg)
 
 
+# -- the pinned downloads (tools.txt) ------------------------------------------------------------------------------
+def tools_file():
+    """tools.txt next to the app; FLOORED_TOOLS_FILE points tests at another file."""
+    env = os.environ.get('FLOORED_TOOLS_FILE')
+    return Path(env).expanduser() if env else paths.APP_DIR / 'tools.txt'
+
+
+def read_pins():
+    """{(tool, system): {"bytes", "sha256", "url"}} from tools.txt. Blank lines, # lines and malformed lines are skipped."""
+    pins = {}
+    try:
+        with open(str(tools_file()), encoding='utf-8') as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return pins
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 5 or line.lstrip().startswith('#') or not fields[2].isdigit():
+            continue
+        tool, system, size, sha, url = fields
+        pins[(tool, system)] = {'bytes': int(size), 'sha256': sha.lower(), 'url': url}
+    return pins
+
+
+def system_key():
+    """win-x64, darwin-arm64 or darwin-x64; None for any other system (no pinned download)."""
+    machine = (platform.machine() or '').lower()
+    if sys.platform == 'win32':
+        return 'win-x64' if machine in ('amd64', 'x86_64') else None
+    if sys.platform == 'darwin':
+        return {'arm64': 'darwin-arm64', 'x86_64': 'darwin-x64'}.get(machine)
+    return None
+
+
+def pins_for(item_id):
+    """[pin, ...] of the files an item downloads on this system (ffmpeg: ffmpeg, plus ffprobe on a Mac), or None."""
+    key = system_key()
+    pins = read_pins()
+    names = ['ffmpeg', 'ffprobe'] if item_id == 'ffmpeg' else [item_id]
+    found = [dict(pins[(name, key)], tool=name) for name in names if (name, key) in pins]
+    return found if key is not None and found and found[0]['tool'] == names[0] else None
+
+
+def tools_dir():
+    return paths.user_dir() / 'tools'
+
+
+def _own_dirs():
+    """floored's own program folders, where a downloaded Python, Node.js or ffmpeg lives."""
+    base = tools_dir()
+    return [str(base / 'python'), str(base / 'python' / 'bin'), str(base / 'node'), str(base / 'node' / 'bin'), str(base / 'ffmpeg')]
+
+
+def own_python():
+    return tools_dir() / 'python' / ('python.exe' if _win() else 'bin/python3')
+
+
 # -- finding programs ----------------------------------------------------------------------------------------------
 def _python_folder_key(folder):
     """A folder like Python313 gives (3, 13): the newest Python first, by number (Python313 before Python39), not as text."""
@@ -159,7 +231,7 @@ def _python_folder_key(folder):
 
 def search_dirs():
     """Where an installer leaves a program that this shell's PATH does not know yet (a winget or brew install)."""
-    found = []
+    found = _own_dirs()                          # floored's own downloaded programs come first
     if _win():
         local = os.environ.get('LOCALAPPDATA')
         program_files = [os.environ.get(v) for v in ('ProgramFiles', 'ProgramW6432')] + [r'C:\Program Files']
@@ -214,7 +286,7 @@ def find_program(name):
 def install_command(item_id):
     spec = MANUAL[item_id]
     if _win() and which('winget'):
-        return 'winget install --id %s -e' % spec['winget']
+        return 'winget install --id %s -e %s' % (spec['winget'], WINGET_FLAGS)
     if _mac() and which('brew'):
         return 'brew install --cask %s' % spec['brew'] if spec.get('cask') else 'brew install %s' % spec['brew']
     return MAC_PAGE.get(item_id, spec['page']) if _mac() else spec['page']
@@ -232,6 +304,19 @@ def _manual_item(item_id, ok, found, need, note):
     return _item(item_id, ok, found, need, 'manual', '' if ok else install_command(item_id), '' if ok else note)
 
 
+def _missing_item(item_id, found, need, note, found_older=False, fix=''):
+    """A python, ffmpeg or node that is not there or not good enough: floored downloads its own copy when this system has a
+    pin; otherwise the manual answer (command or page). `fix` is what the creator would do themselves ("Reinstall it."):
+    it is said only with the manual answer, never beside "floored downloads its own copy"."""
+    pins = pins_for(item_id)
+    if not pins:
+        return _manual_item(item_id, False, found, need, (note + ' ' + fix).strip())
+    tail = OWN_COPY_KEEPS_YOURS if found_older else OWN_COPY_NOTE
+    item = _item(item_id, False, found, need, 'auto', 'download ' + pins[0]['url'], note + ' ' + tail)
+    item['mb'] = int(round(sum(p['bytes'] for p in pins) / 1e6))
+    return item
+
+
 STALE_NOTE = ' The saved location of %s was gone, so floored looked again.'
 
 
@@ -243,6 +328,11 @@ def _version_text(version):
 def _pythons():
     """(executable, (major, minor, micro)) candidates, this interpreter first, then the ones installers leave."""
     yield sys.executable, tuple(sys.version_info[:3])
+    own = own_python()                                       # floored's own downloaded Python, right after this interpreter
+    if own.is_file():
+        code, out = _capture([str(own), '-c', 'import sys;print(*sys.version_info[:3])'], timeout=20)
+        if code == 0 and re.fullmatch(r'\d+ \d+ \d+', out.strip()):
+            yield str(own), tuple(int(n) for n in out.split())
     for name in ('python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3', 'python'):
         hit = find_program(name)
         if hit:
@@ -268,7 +358,7 @@ def check_python():
         return _item('python', True, 'Python ' + _version_text(version), need, 'manual')
     note = ("Python 3.10 or newer isn't installed." if version is None
             else 'Your Python is %s, and floored needs 3.10 or newer.' % _version_text(version))
-    return _manual_item('python', False, ('Python ' + _version_text(version)) if version else None, need, note)
+    return _missing_item('python', ('Python ' + _version_text(version)) if version else None, need, note, found_older=version is not None)
 
 
 def ffmpeg_features(exe):
@@ -307,7 +397,7 @@ def check_ffmpeg():
     probe = find_program('ffprobe') if hit else None
     note_tail = STALE_NOTE % 'ffmpeg' if hit and hit['stale'] else ''
     if not hit:
-        return _manual_item('ffmpeg', False, None, need, "ffmpeg isn't installed.")
+        return _missing_item('ffmpeg', None, need, "ffmpeg isn't installed.")
     features = ffmpeg_features(hit['path'])
     full = full_build_ffmpeg() if features['missing'] else None
     if full:                                     # the PATH one is a slim build: record the full one, it goes first
@@ -317,11 +407,12 @@ def check_ffmpeg():
         features = ffmpeg_features(full[0])
     found = 'ffmpeg ' + (features['version'] or '')
     if features['missing']:
-        return _manual_item('ffmpeg', False, found.strip(), need,
-                            'This ffmpeg is missing parts floored needs (%s). Install the full build.' % ', '.join(
-                                FFMPEG_MISSING_TEXT[m] for m in features['missing']))
+        return _missing_item('ffmpeg', found.strip(), need,
+                             'This ffmpeg is missing parts floored needs (%s).' % ', '.join(
+                                 FFMPEG_MISSING_TEXT[m] for m in features['missing']), found_older=True, fix='Install the full build.')
     if not probe:
-        return _manual_item('ffmpeg', False, found.strip(), need, "ffprobe (it comes with ffmpeg) wasn't found. Reinstall ffmpeg.")
+        return _missing_item('ffmpeg', found.strip(), need, "ffprobe (it comes with ffmpeg) wasn't found.", found_older=True,
+                             fix='Reinstall ffmpeg.')
     return _item('ffmpeg', True, found.strip(), need, 'manual', note=note_tail.strip())
 
 
@@ -335,16 +426,17 @@ def check_node():
     need = 'Node.js 22 or newer'
     hit = find_program('node')
     if not hit:
-        return _manual_item('node', False, None, need, "Node.js isn't installed.")
+        return _missing_item('node', None, need, "Node.js isn't installed.")
     version = node_version(hit['path'])
     if not version:
-        return _manual_item('node', False, None, need, "Node.js is installed but doesn't start. Reinstall it.")
+        return _missing_item('node', None, need, "Node.js is installed but doesn't start.", found_older=True, fix='Reinstall it.')
     if version[0] < MIN_NODE:
-        return _manual_item('node', False, 'Node.js ' + _version_text(version), need,
-                            'Your Node.js is %s, and floored needs 22 or newer.' % _version_text(version))
+        return _missing_item('node', 'Node.js ' + _version_text(version), need,
+                             'Your Node.js is %s, and floored needs 22 or newer.' % _version_text(version), found_older=True)
     npm = find_program('npm')
     if not npm:
-        return _manual_item('node', False, 'Node.js ' + _version_text(version), need, "npm (it comes with Node.js) wasn't found. Reinstall Node.js.")
+        return _missing_item('node', 'Node.js ' + _version_text(version), need, "npm (it comes with Node.js) wasn't found.", found_older=True,
+                             fix='Reinstall Node.js.')
     return _item('node', True, 'Node.js ' + _version_text(version), need, 'manual',
                  note=(STALE_NOTE % 'Node.js').strip() if hit['stale'] else '')
 
@@ -606,6 +698,207 @@ def _remove(path):
         pass
 
 
+# -- floored's own Python, Node.js and ffmpeg ----------------------------------------------------------------------
+def _rmtree(path):
+    """Remove one of floored's own folders (a leftover, or the copy being replaced); DoctorError when something holds it.
+    Read-only files (Windows keeps some) are made writable and the removal is tried once more. No `onerror` or `onexc`
+    argument: each exists only in some Python versions, and this runs on whichever Python the computer has."""
+    if not os.path.lexists(str(path)):
+        return
+    for last_try in (False, True):
+        try:
+            shutil.rmtree(str(path))
+            return
+        except OSError:
+            if last_try:
+                raise DoctorError("Couldn't replace the old copy in %s. Close anything that is using it, then try again." % path)
+            for root, dirs, files in os.walk(str(path)):
+                for name in dirs + files:
+                    try:
+                        os.chmod(os.path.join(root, name), 0o700)
+                    except OSError:
+                        pass
+
+
+def _download_pin(item_id, label, pin, part, log):
+    """Download pin['url'] to `part`. The byte count and the SHA-256 must equal the pin, else the part file is deleted."""
+    part.parent.mkdir(parents=True, exist_ok=True)
+    h = hashlib.sha256()
+    done, shown = 0, 0
+    try:
+        with _opener(pin['url']).open(urllib.request.Request(pin['url'], headers={'User-Agent': 'floored-doctor'}), timeout=60) as r, \
+                open(str(part), 'wb') as f:
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if done - shown >= 5_000_000:
+                    shown = done
+                    log('%s: %.0f of %.0f MB' % (label, done / 1e6, pin['bytes'] / 1e6))
+    except urllib.error.HTTPError as e:
+        _remove(part)
+        if e.code == 404:
+            raise DoctorError("The file for %s has moved, so floored can't download it. Update floored, or install %s yourself from %s"
+                              % (label, label, MANUAL[item_id]['page']))
+        raise DoctorError("Couldn't download %s (the server answered %s). Check the internet connection and try again." % (label, e.code))
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as e:
+        _remove(part)
+        raise DoctorError("Couldn't download %s (%s). Check the internet connection and try again." % (label, getattr(e, 'reason', None) or e))
+    if done != pin['bytes'] or h.hexdigest() != pin['sha256']:
+        _remove(part)
+        raise DoctorError("%s didn't download correctly (the file isn't the expected one), so it was thrown away. Try again." % label)
+
+
+def _parts(name):
+    """The parts of an archive path; a name that climbs out of the folder (or is absolute) is refused."""
+    parts = [p for p in name.replace('\\', '/').split('/') if p not in ('', '.')]
+    if '..' in parts or re.match(r'^[A-Za-z]:', name) or name.startswith(('/', '\\')):
+        raise DoctorError("The download holds a file that would land outside floored's folder, so it was not unpacked.")
+    return parts
+
+
+def _unpack_tar(archive, dest):
+    """Unpack a .tar.gz into dest without its single top folder, keeping symbolic links."""
+    with tarfile.open(str(archive), 'r:*') as t:
+        members = []
+        for m in t.getmembers():
+            parts = _parts(m.name)[1:]
+            if not parts:
+                continue
+            m.name = '/'.join(parts)
+            if m.islnk():
+                m.linkname = '/'.join(_parts(m.linkname)[1:])
+            elif m.issym() and not hasattr(tarfile, 'data_filter'):
+                if os.path.isabs(m.linkname) or os.path.normpath(os.path.join(os.path.dirname(m.name), m.linkname)).startswith('..'):
+                    raise DoctorError("The download holds a link that points outside floored's folder, so it was not unpacked.")
+            members.append(m)
+        if hasattr(tarfile, 'data_filter'):
+            t.extractall(str(dest), members=members, filter='data')
+        else:
+            t.extractall(str(dest), members=members)
+
+
+def _unpack_zip(archive, dest, place):
+    """Write the files of a zip into dest. place(parts) gives the path parts to write a file at, or None to skip it."""
+    with zipfile.ZipFile(str(archive)) as z:
+        for info in z.infolist():
+            if info.is_dir():
+                continue
+            target = place(_parts(info.filename))
+            if not target:
+                continue
+            out = Path(str(dest)).joinpath(*target)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(info) as src, open(str(out), 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+
+
+def _unpack(item_id, tool, archive, dest):
+    if not zipfile.is_zipfile(str(archive)):
+        _unpack_tar(archive, dest)
+    elif item_id != 'ffmpeg':
+        _unpack_zip(archive, dest, lambda parts: parts[1:] or None)          # Node.js for Windows: the top folder is dropped
+    elif system_key() == 'win-x64':                    # ffmpeg and ffprobe in one zip: the files of bin/ go flat (DLLs too), the player stays out
+        _unpack_zip(archive, dest, lambda parts: [parts[-1]] if len(parts) == 3 and parts[1] == 'bin'
+                    and parts[-1].lower() != 'ffplay.exe' else None)
+    else:                                                                    # one file per zip, made executable (zipfile doesn't keep the mode)
+        with zipfile.ZipFile(str(archive)) as z:
+            files = [_parts(i.filename) for i in z.infolist() if not i.is_dir()]
+        hit = [p for p in files if p[-1] == tool] or (files if len(files) == 1 else [])
+        _unpack_zip(archive, dest, lambda parts: [tool] if hit and parts == hit[0] else None)
+        if os.path.isfile(os.path.join(str(dest), tool)):
+            os.chmod(os.path.join(str(dest), tool), 0o755)
+
+
+def _check_python_install():
+    exe = own_python()
+    code, out = _capture([str(exe), '-c', 'import sys;print(*sys.version_info[:3])'], timeout=30) if exe.is_file() else (None, '')
+    if code != 0 or not re.fullmatch(r'\d+ \d+ \d+', out.strip()) or tuple(int(n) for n in out.split()) < MIN_PYTHON:
+        raise DoctorError("Python was downloaded but doesn't start on this computer. Install Python 3.10 or newer yourself from %s"
+                          % MANUAL['python']['page'])
+
+
+def _check_node_install():
+    folder = str(tools_dir() / 'node') if _win() else str(tools_dir() / 'node' / 'bin')
+    exe, npm = _which_in(folder, 'node'), _which_in(folder, 'npm')
+    version = node_version(exe) if exe else None
+    if not version or version[0] < MIN_NODE:
+        raise DoctorError("Node.js was downloaded but doesn't start on this computer. Install Node.js 22 or newer yourself from %s"
+                          % MANUAL['node']['page'])
+    if not npm:
+        raise DoctorError("Node.js was downloaded without npm, so it can't be used. Try again.")
+    record_tool('node', os.path.abspath(exe))
+    record_tool('npm', os.path.abspath(npm))
+
+
+def _check_ffmpeg_install():
+    folder = str(tools_dir() / 'ffmpeg')
+    exe, probe = _which_in(folder, 'ffmpeg'), _which_in(folder, 'ffprobe')
+    if not exe or not probe:
+        raise DoctorError("The ffmpeg download didn't hold ffmpeg and ffprobe, so it can't be used. Try again.")
+    missing = ffmpeg_features(exe)['missing']
+    if missing:
+        raise DoctorError("The downloaded ffmpeg is missing parts floored needs (%s), so it can't be used." % ', '.join(
+            FFMPEG_MISSING_TEXT[m] for m in missing))
+    record_tool('ffmpeg', os.path.abspath(exe))
+    record_tool('ffprobe', os.path.abspath(probe))
+
+
+def _install_tool(item_id, log):
+    """Download floored's own copy of python, node or ffmpeg into <user dir>/tools/<item>, then start it once to prove it runs."""
+    pins = pins_for(item_id)
+    if not pins:
+        raise DoctorError('floored has no download for %s on this computer.' % LABELS[item_id])
+    check = {'python': _check_python_install, 'node': _check_node_install, 'ffmpeg': _check_ffmpeg_install}[item_id]
+    base = tools_dir()
+    base.mkdir(parents=True, exist_ok=True)
+    final, new = base / item_id, base / (item_id + '.new')
+    if final.is_dir():                                   # asked twice: a copy that is there and runs is kept, not downloaded again
+        try:
+            check()
+            return
+        except DoctorError:
+            pass
+    parts = [base / (pin['tool'] + '.part') for pin in pins]
+    _rmtree(new)
+    try:
+        new.mkdir()
+        for pin, part in zip(pins, parts):
+            _download_pin(item_id, LABELS.get(pin['tool'], pin['tool']), pin, part, log)
+            try:
+                _unpack(item_id, pin['tool'], part, new)
+            except (OSError, tarfile.TarError, zipfile.BadZipFile) as e:
+                raise DoctorError("%s was downloaded but couldn't be unpacked (%s). Try again." % (LABELS[item_id], e))
+            finally:
+                _remove(part)
+        _rmtree(final)                                   # floored's own folder: a copy from an earlier run is replaced
+        os.replace(str(new), str(final))
+    finally:
+        for part in parts:
+            _remove(part)
+        _rmtree(new)
+    try:
+        check()
+    except DoctorError:
+        _rmtree(final)                                   # don't leave a program that doesn't work in its own folder
+        raise
+
+
+def install_python(log=log):
+    _install_tool('python', log)
+
+
+def install_node(log=log):
+    _install_tool('node', log)
+
+
+def install_ffmpeg(log=log):
+    _install_tool('ffmpeg', log)
+
+
 def _stream(cmd, label, env=None, timeout=None):
     """Run cmd, relaying its output lines to stderr; DoctorError with the tail when it fails."""
     code, tail = run_lines(cmd, lambda line: log(label + ': ' + line[:200]), env=env, timeout=timeout)
@@ -624,7 +917,7 @@ def install_venv(log=log):
         return
     exe, _ = find_python()
     if not exe:
-        raise DoctorError('Python 3.10 or newer is needed first. Run the install command from the doctor report.')
+        raise DoctorError('Python 3.10 or newer is needed first. Set up Python first (the doctor report shows how), then run this step again.')
     paths.user_dir().mkdir(parents=True, exist_ok=True)
     _stream([exe, '-m', 'venv', str(venv_dir())], 'python environment')
     if not venv_python().is_file():
@@ -646,7 +939,7 @@ def install_packages(log=log):
 def _node_env():
     node, npm = find_program('node'), find_program('npm')
     if not node or not npm or not node_version(node['path']) or node_version(node['path'])[0] < MIN_NODE:
-        raise DoctorError('Node.js 22 or newer is needed first. Run the install command from the doctor report.')
+        raise DoctorError('Node.js 22 or newer is needed first. Set up Node.js first (the doctor report shows how), then run this step again.')
     find_program('ffmpeg')                       # records its folder (when found by search) for renderer_env() to put on PATH
     env = _renderer_env()
     env['PATH'] = os.path.dirname(node['path']) + os.pathsep + env.get('PATH', '')    # npm itself needs node, even before export exists
@@ -746,7 +1039,7 @@ def gpu_check(log=log):
     return 'Cutouts will use the graphics card; the results match the processor.'
 
 
-INSTALLERS = {'venv': install_venv, 'packages': install_packages, 'rvm-model': download_rvm, 'renderer': install_renderer,
+INSTALLERS = {'python': install_python, 'ffmpeg': install_ffmpeg, 'node': install_node, 'venv': install_venv, 'packages': install_packages, 'rvm-model': download_rvm, 'renderer': install_renderer,
               'words': install_words}
 
 
@@ -754,7 +1047,7 @@ def install(item_id, log=log):
     """{"id", "ok", "message"}. Never raises for an expected failure."""
     if item_id not in ITEM_IDS:
         return {'id': item_id, 'ok': False, 'message': 'There is no setup step called "%s".' % item_id, 'code': 2}
-    if item_id in MANUAL:
+    if item_id in MANUAL and not (item_id in TOOL_IDS and pins_for(item_id)):      # a pinned download is floored's own job
         command = install_command(item_id)
         return {'id': item_id, 'ok': False, 'code': 2, 'command': command,
                 'message': "%s is installed with a command, not by floored: %s" % (LABELS[item_id], command)}
@@ -764,7 +1057,8 @@ def install(item_id, log=log):
         INSTALLERS[item_id](log)
     except DoctorError as e:
         return {'id': item_id, 'ok': False, 'message': str(e), 'code': 1}
-    return {'id': item_id, 'ok': True, 'message': '%s is ready.' % LABELS[item_id].capitalize(), 'code': 0}
+    label = LABELS[item_id]                              # "The video maker is ready." but "ffmpeg is ready.": its name is written small
+    return {'id': item_id, 'ok': True, 'message': '%s is ready.' % (label if item_id == 'ffmpeg' else label[0].upper() + label[1:]), 'code': 0}
 
 
 # -- running from the private environment --------------------------------------------------------------------------
