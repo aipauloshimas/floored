@@ -22,5 +22,6 @@ The studio's home screen shows a picture of each.
 
 - The clip should be tall (9:16) and filmed with the phone upright. Wide videos get cropped.
 - Up to 10 seconds works, with a warning. Shorter clips are quicker to process and look best.
+- 1080p at 30 frames a second is enough. 4K and 60 frames a second work too, but the cutting takes two to six times longer.
 - One person, one still camera. floored cuts you out of the video and puts the words on the floor around you.
 - The studio shows a note about every problem it finds, in plain words, with what to change next time.

@@ -78,9 +78,10 @@ takes and exports go in `WS/floored/`. `floored.py` hands over to its own privat
    order above: the manual command if there is one, the `auto` items and both optional ones. A plain request for an
    intro is not a blanket go: then ask.
 3. **No clip yet?** (With a clip, go to step 4.) Show them [how to film it](reference/filming.md) in your own words
-   (phone up high and a little in front, tilted down, not straight down, whole body, one spot, 3 to 8 s), then start
-   the studio (step 4, no `add`). Its home page has a sample take: point at **Try the sample take**, so they can try
-   the looks now and film later. Never offer to generate the take or to make it for them: it is theirs to film.
+   (phone up high and a little in front, tilted down, not straight down, whole body, one spot, 3 to 8 s; 1080p at
+   30 fps is enough, 4K and 60 fps take two to six times longer to cut), then start the studio (step 4, no `add`).
+   Its home page has a sample take: point at **Try the sample take**, so they can try the looks now and film later.
+   Never offer to generate the take or to make it for them: it is theirs to film.
 4. **Start the studio.** `APP serve --workspace WS --detach` prints `FLOORED_URL=<url>`, the studio's home page.
    With a clip path, don't open it: step 5 gives the take's own page. With no clip path, open it in the desktop
    app's Browser pane when your tools have one; otherwise run the same command with `--open` (Chrome or Edge). If it
