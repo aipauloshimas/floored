@@ -1,5 +1,7 @@
 import { byId, clone, toast } from './util.js';
 import { api } from './api.js';
+import { onReach } from './reach.js';
+import { REACH } from './copy.js';
 
 export { ssGet, ssSet } from './util.js';
 
@@ -127,7 +129,7 @@ function send(method, path, body) {
   // keepalive lets the request finish while the page is going away (sendBeacon cannot do PUT)
   return api(path, { method: method, headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).then(function () { return true; }, function (err) {
     var now = Date.now();
-    if (now - lastSaveToast > 10000) { lastSaveToast = now; toast('Your last change was not saved. ' + (err && err.message ? err.message : ''), 'error'); }
+    if (now - lastSaveToast > 10000) { lastSaveToast = now; toast(err && err.network ? REACH.saveKept : 'Your last change was not saved. ' + (err && err.message ? err.message : ''), 'error'); }
     return false;
   });
 }
@@ -152,6 +154,8 @@ export function flush() {
   inflight = Promise.all([inflight].concat(jobs)).then(function () {});
   return inflight;
 }
+/* the studio is back: send what waited while it was gone (the latest state of each take, once) */
+onReach(function (gone) { if (!gone) flush(); });
 window.addEventListener('pagehide', flush);
 document.addEventListener('visibilitychange', function () { if (document.hidden) flush(); });
 
