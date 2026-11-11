@@ -47,7 +47,7 @@ import traceback
 from ft import calibration, matte, paths, words
 from ft.measure import measure, take_warnings
 from ft.media import (STAGE_BASE, PipelineError, ffmpeg_rate, fps_value, make_proxy, num, probe, rate,   # noqa: F401  (re-exported)
-                      stage_size, tier, to_stage)
+                      sound_fix, stage_size, stream_starts, tier, to_stage)
 from ft.proc import NO_WINDOW, MissingTool, kill_tree, run, run_lines, tool
 
 VIDEO_EXTS = ('.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi')
@@ -586,10 +586,12 @@ class Pipeline:
         log('probe: %s' % {k: info[k] for k in ('w', 'h', 'rot', 'codec', 'pix_fmt', 'fps', 'vfr', 'frames', 'dur', 'audio', 'bitrate')})
         t = tier(info)
         sw, sh = stage_size(t)
+        starts = stream_starts(src_up)
+        fix = sound_fix(starts)                                       # the sound starts apart from the picture
         stage = os.path.join(d, 'stage.mp4')
         plain = (src_up.lower().endswith('.mp4') and info['codec'] == 'h264' and info['pix_fmt'] == 'yuv420p'
                  and info['rot'] == 0 and (info['w'], info['h']) == (sw, sh) and not info['vfr']
-                 and info['fps'] <= 60 and not info['hdr'])
+                 and info['fps'] <= 60 and not info['hdr'] and fix is None)
         if 'checking' in have:
             log('resuming: stage.mp4, the poster and the sound are already made')
             vi = probe(stage)
@@ -600,7 +602,11 @@ class Pipeline:
             else:
                 self._set(tid, 'checking', 0.2, 'Converting your clip to %d x %d' % (sw, sh), force=True)
                 log('normalising to %dx%d cfr h264 (tier %d)' % (sw, sh, t))
-                to_stage(src_up, stage, info, t, lambda line: log('ffmpeg: ' + line))
+                if fix:                                               # stage.mp4 starts both tracks at the first picture frame
+                    log('the sound started %.3f s %s the picture: %s' % (fix[1], 'after' if fix[0] == 'pad' else 'before',
+                        'its start was filled with silence' if fix[0] == 'pad' else 'that much was cut from its start'))
+                to_stage(src_up, stage, info, t, lambda line: log('ffmpeg: ' + line),
+                         sound=fix)
                 vi = probe(stage)
         fps, frames = vi['fps'], vi['frames']
         fps_str = info_fps_str(vi)

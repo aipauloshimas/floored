@@ -141,6 +141,51 @@ def probe(path):
             'hdr': is_hdr(transfer, bits), 'transfer': transfer, 'bits': bits}
 
 
+# ------------------------------------------------------------------------------------------------ the sound's start
+
+SOUND_SLACK = 0.010                             # a sound starting this close to the picture is "together" with it
+
+
+def stream_starts(path):
+    """The start time (s) of the first picture stream and of the first sound stream of a file, plus the sound's codec
+    and the sample rate its header states. A missing or unreadable start time counts as 0.0; no sound stream gives None
+    for 'audio'."""
+    code, out, _ = run([tool('ffprobe'), '-v', 'error', '-show_entries',
+                        'stream=index,codec_type,codec_name,start_time,sample_rate', '-of', 'json', str(path)],
+                       timeout=60)
+    streams = (json.loads(out).get('streams') or []) if code == 0 and out.strip() else []
+    v = next((s for s in streams if s.get('codec_type') == 'video'), {})
+    a = next((s for s in streams if s.get('codec_type') == 'audio'), None)
+    return {'video': num(v.get('start_time')), 'audio': num(a.get('start_time')) if a else None,
+            'rate': (int(num(a.get('sample_rate'))) or 48000) if a else None,
+            'codec': a.get('codec_name') if a else None}
+
+
+def sound_fix(starts):
+    """How the take's sound must change so that its time zero is the first picture frame: None when it already is
+    (the two start times differ by at most SOUND_SLACK, plus one AAC frame, 1024 samples, because a file written without
+    an edit list shows the encoder's priming in the sound's start time), else ('pad', seconds) when the sound starts
+    after the picture, ('cut', seconds) when it starts before it. Always the difference of the two start times: a clip
+    whose two tracks both start late is not shifted."""
+    if starts.get('audio') is None:
+        return None
+    off = starts['audio'] - starts['video']
+    slack = SOUND_SLACK + (1024.0 / starts['rate'] if starts.get('codec') == 'aac' and starts.get('rate') else 0.0)
+    if abs(off) <= slack:
+        return None
+    return ('pad', off) if off > 0 else ('cut', -off)
+
+
+def sound_filter(fix):
+    """The ffmpeg audio filter that realises sound_fix: silence in front ('pad'), or the lead-in cut off ('cut'); the
+    output starts at zero. Both are given in time, so ffmpeg counts the samples at the rate it really decodes (a file's
+    header can state half of it). adelay takes milliseconds: it reads a fraction with the "s" suffix as milliseconds too."""
+    kind, secs = fix
+    if kind == 'pad':
+        return 'adelay=delays=%.3f:all=1,asetpts=PTS-STARTPTS' % (secs * 1000.0)
+    return 'asetpts=PTS-STARTPTS,atrim=start=%.6f,asetpts=PTS-STARTPTS' % secs
+
+
 # ----------------------------------------------------------------------------------------------------- the stage
 
 def tier(info):
@@ -168,16 +213,22 @@ def stage_fps(info):
     return fps
 
 
-def to_stage(src, dst, info, t, on_line):
+def to_stage(src, dst, info, t, on_line, sound=None):
     """Re-encode to the stage video: rotation applied, HDR tone-mapped to SDR, scaled and letterboxed to
-    stage_size(t), constant frame rate (stage_fps), 8-bit yuv420p H.264 CRF 14, AAC 48 kHz stereo 192k, faststart."""
+    stage_size(t), constant frame rate (stage_fps), 8-bit yuv420p H.264 CRF 14, AAC 48 kHz stereo 192k, faststart.
+    `sound` = the fix from sound_fix: both tracks then start at zero, the clip's own first picture frame, with no frame
+    the creator never filmed."""
     w, h = stage_size(t)
-    chain = [HDR_TO_SDR] if info.get('hdr') else []              # ffmpeg rotates by the flag on its own, before this
+    chain = ['setpts=PTS-STARTPTS'] if sound else []
+    chain += [HDR_TO_SDR] if info.get('hdr') else []             # ffmpeg rotates by the flag on its own, before this
     chain.append('scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,'
                  'setsar=1,format=yuv420p' % (w, h, w, h))
     cmd = [tool('ffmpeg'), '-y', '-v', 'error', '-nostdin', '-i', str(src), '-map', '0:v:0', '-map', '0:a:0?',
-           '-vf', ','.join(chain), '-fps_mode', 'cfr', '-r', ffmpeg_rate(stage_fps(info)),
-           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p']
+           '-vf', ','.join(chain)]
+    if sound:
+        cmd += ['-af', sound_filter(sound)]
+    cmd += ['-fps_mode', 'cfr', '-r', ffmpeg_rate(stage_fps(info)),
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p']
     if info.get('hdr'):                                          # say what the tone-mapping produced
         cmd += ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
     cmd += ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', str(dst)]
