@@ -18,6 +18,14 @@ downloads it to your computer from the official source, and it stays there.
   `Systran/faster-whisper-base` repository). MIT. Installed at setup with pip, only when you accept it.
 - **Optional speech reader, installed with faster-whisper by pip** (same consent): ctranslate2 (MIT), av (BSD-3-Clause),
   tokenizers (Apache-2.0) and huggingface-hub (Apache-2.0).
+- **Python, Node.js, ffmpeg and ffprobe**, each only when your computer has none (or, for ffmpeg, an incomplete
+  one). Setup downloads the publisher's own build, checks it against a pinned SHA-256 and unpacks it into
+  `~/.floored/tools`; floored runs them as separate programs and does not include or modify them. The exact files are
+  listed in `app/tools.txt`: CPython 3.12 as built by the python-build-standalone project
+  (https://github.com/astral-sh/python-build-standalone ; PSF-2.0 and the licences of the libraries it carries),
+  Node.js 22 from https://nodejs.org (MIT and the licences of the libraries it carries), and ffmpeg 9.0.2 from
+  https://www.gyan.dev/ffmpeg/builds/ on Windows and https://ffmpeg.martin-riedl.de on macOS (GPL builds:
+  GPL-3.0-or-later).
 - **Chrome headless shell**, the browser HyperFrames downloads on its first render, into `~/.cache/hyperframes` (or
   `~/.floored/hf-cache`). Google's Chrome for Testing build, under the Chromium project's licences (BSD-3-Clause and
   others). Installed, not bundled.
