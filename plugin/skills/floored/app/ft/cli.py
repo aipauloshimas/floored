@@ -344,6 +344,17 @@ def cmd_add(args):
     return 0
 
 
+def command_started(now=None):
+    """When this command was launched: floored.py notes it in FLOORED_STARTED before anything slow. A missing value, or
+    one that cannot be a start-up (in the future, or more than two minutes ago), is not believed: then it is now."""
+    now = time.time() if now is None else now
+    try:
+        launched = float(os.environ.get('FLOORED_STARTED') or '')
+    except ValueError:
+        return now
+    return launched if 0 <= now - launched <= 120 else now
+
+
 def cmd_wait(args):
     ws = paths.Workspace(os.path.abspath(args.workspace))
     takes = str(ws.takes)
@@ -352,7 +363,7 @@ def cmd_wait(args):
             return fail('no such take: %s' % args.take, 2)
         wait = dict(take=args.take)
     else:
-        wait = dict(next_take=bridge.NextTake(takes))
+        wait = dict(next_take=bridge.NextTake(takes, started=command_started()))
     try:
         poll = float(os.environ.get('FT_WAIT_POLL') or bridge.POLL_S)
     except ValueError:

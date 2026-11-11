@@ -439,6 +439,30 @@ def test_retry_refuses_a_take_that_is_not_failed(local_pipe, ws, portrait_1080):
     assert e.value.code == 404
 
 
+def test_wait_next_counts_a_take_made_while_the_command_was_still_starting(bridge, tmp_path):
+    """On a busy computer the command takes seconds to start. floored.py notes the moment it was launched, and a take
+    made after that moment is the next take, even though it was already there at the waiter's first look."""
+    from ft import bridge as b
+    if b._created_at(str(tmp_path)) is None:
+        pytest.skip('this file system does not say when a folder was made')
+    proj = tmp_path / 'proj'
+    paths.Workspace(proj).ensure()
+    launched = time.time()
+    make_take(proj, 'made-meanwhile', 'error', 'Nope.')
+    time.sleep(b.NEXT_TOLERANCE_S + 1.2)                                 # the slow start
+    r = bridge.run('wait', '--workspace', proj, '--next', '--timeout', 6, env={'FLOORED_STARTED': '%.3f' % launched}, timeout=40)
+    assert r.returncode == 3 and json.loads(r.stdout)['take'] == 'made-meanwhile', (r.returncode, r.stdout, r.stderr)
+
+
+def test_the_launch_moment_is_believed_only_when_it_is_plausible(monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.delenv('FLOORED_STARTED', raising=False)
+    assert cli.command_started(now) == now
+    for value, want in (('%.3f' % (now - 2.5), now - 2.5), ('%.3f' % (now - 3600), now), ('%.3f' % (now + 5), now), ('soon', now), ('', now)):
+        monkeypatch.setenv('FLOORED_STARTED', value)
+        assert cli.command_started(now) == pytest.approx(want), value
+
+
 # --------------------------------------------------------------------------------------------- the pure pieces
 def test_next_take_matches_by_snapshot_and_by_creation_time(tmp_path):
     from ft import bridge as b

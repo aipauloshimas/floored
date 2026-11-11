@@ -4,6 +4,11 @@ When the private environment ~/.floored/venv exists (the doctor makes it), every
 hands over to its Python. FLOORED_NO_VENV=1 turns that off."""
 import os
 import sys
+import time
+
+# When this command was launched, noted before the hand-over to the private environment and the imports (seconds on a
+# busy computer): `wait --next` counts a take made after this moment. The hand-over keeps the first value.
+os.environ.setdefault('FLOORED_STARTED', '%.3f' % time.time())
 
 # redirected output uses the ANSI code page on Windows: keep non-ASCII paths from crashing the server
 for _stream in (sys.stdout, sys.stderr):
