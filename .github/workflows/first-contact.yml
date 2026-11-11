@@ -1,0 +1,168 @@
+# What this proves: floored's setup works on a computer that has no developer software. Each job takes a GitHub
+# runner (Windows, a Mac with an Apple chip, a Mac with an Intel chip), removes any Python, Node.js and ffmpeg it
+# finds, proves they are gone, then does what a creator's first run does: find or download floored's own Python,
+# install what the doctor asks for, cut a real take, and run the slow test suite. Nothing here touches the
+# repository or a real computer: it only changes the throwaway runner, which is thrown away after the job.
+# No secrets, standard runners only. The scripts are in .github/first-contact/.
+name: first contact
+
+on:
+  push:
+    branches: [main, 'lab/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  first-contact-windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: strip the machine
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $away = 'C:\lab-away'
+          New-Item -ItemType Directory -Force $away | Out-Null
+          $manifest = Join-Path $away 'manifest.txt'
+          function Away($p) {
+            if (Test-Path -LiteralPath $p) {
+              $dest = Join-Path $away (($p -replace '[:\\ ()]', '_'))
+              try { Move-Item -LiteralPath $p -Destination $dest -ErrorAction Stop; "moved  $p"; "$p|$dest" | Add-Content $manifest }
+              catch { "FAILED to move $p : $($_.Exception.Message)" }
+            } else { "absent $p" }
+          }
+          $cands = @()
+          $cands += Get-ChildItem 'C:\Program Files' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|nodejs|nvm|ffmpeg|Volta)' } | ForEach-Object FullName
+          $cands += Get-ChildItem 'C:\Program Files (x86)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|nodejs|ffmpeg)' } | ForEach-Object FullName
+          $cands += "$env:LOCALAPPDATA\Programs\Python"
+          $cands += "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+          $cands += 'C:\ProgramData\chocolatey\lib\ffmpeg', 'C:\ProgramData\chocolatey\lib\nodejs', 'C:\ProgramData\chocolatey\lib\python3', 'C:\ProgramData\chocolatey\lib\python'
+          $cands += 'C:\ProgramData\nvm', 'C:\npm', "$env:APPDATA\npm", "$env:APPDATA\nvm", "$env:LOCALAPPDATA\nvm"
+          $cands += 'C:\ffmpeg', 'C:\Python3', 'C:\Python312', 'C:\Python311', 'C:\Python310'
+          foreach ($tc in @($env:RUNNER_TOOL_CACHE, $env:AGENT_TOOLSDIRECTORY, 'C:\hostedtoolcache\windows') | Where-Object { $_ } | Select-Object -Unique) {
+            "tool cache: $tc"
+            $cands += Get-ChildItem $tc -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|PyPy|node)' } | ForEach-Object FullName
+          }
+          foreach ($c in ($cands | Select-Object -Unique)) { Away $c }
+          # single files left on PATH folders (py.exe launcher, chocolatey shims, ...)
+          foreach ($d in ($env:PATH -split ';' | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)) {
+            if ($d -match '\\WindowsApps') { continue }
+            Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -match '^(python[0-9.]*|pythonw|py|pyw|pip[0-9.]*|node|npm|npx|corepack|ffmpeg|ffprobe|ffplay)$' } | ForEach-Object { Away $_.FullName }
+          }
+          foreach ($f in 'C:\Windows\py.exe', 'C:\Windows\pyw.exe') { Away $f }
+          "--- manifest:"; Get-Content $manifest -ErrorAction SilentlyContinue
+          exit 0
+
+      - name: prove it is bare
+        run: |
+          $ErrorActionPreference = 'Continue'
+          "PATH:"; ($env:PATH -split ';') | ForEach-Object { "  $_" }
+          "--- Get-Command:"
+          $found = @(Get-Command python, python3, py, node, npm, ffmpeg, ffprobe -ErrorAction SilentlyContinue)
+          $found | ForEach-Object { "  $($_.Name) -> $($_.Source)" }
+          if ($found.Count -eq 0) { "RESULT nothing found" }
+          $bad = @($found | Where-Object { $_.Source -notmatch '\\WindowsApps\\' })
+          if ($found.Count -gt 0 -and $bad.Count -eq 0) { "RESULT only Microsoft Store stubs under WindowsApps" }
+          "--- python --version:"
+          $o = & python --version 2>&1 | ForEach-Object { "$_" }; "output: $o"; "exit code: $LASTEXITCODE"
+          "--- powershell: $($PSVersionTable.PSVersion)"
+          "--- browsers: chrome $(Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'), edge $(Test-Path 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')"
+          if ($bad.Count -gt 0) { "STILL FOUND: $($bad.Source -join ', ')"; exit 1 }
+          exit 0
+
+      - name: first contact (finder, own Python, the doctor's installs, a real take)
+        run: .github\first-contact\fc-windows.ps1
+
+      - name: the slow suite (real cutouts, the sample export, 4K)
+        timeout-minutes: 100
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $fh = Join-Path $env:USERPROFILE '.floored'
+          $py = Join-Path $fh 'tools\python\python.exe'
+          # the test fixtures call ffmpeg and node from PATH (the product itself does not need PATH): for this step only
+          $env:PATH = "$fh\tools\ffmpeg;$fh\tools\node;$env:PATH"
+          $env:PYTHONUTF8 = '1'
+          & $py -m venv .venv; if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .venv\Scripts\python.exe -m pip install --upgrade pip; if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt; if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .venv\Scripts\python.exe -m pytest -m slow -v --tb=short -rfE --durations=15
+          exit $LASTEXITCODE
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: |
+          $manifest = 'C:\lab-away\manifest.txt'
+          if (Test-Path $manifest) {
+            Get-Content $manifest | ForEach-Object { $a = $_ -split '\|'; if (Test-Path -LiteralPath $a[1]) { Move-Item -LiteralPath $a[1] -Destination $a[0] -ErrorAction SilentlyContinue } }
+          }
+          exit 0
+
+  first-contact-mac-arm:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: /bin/sh -e {0}
+    env:
+      LAB_SYS: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: strip the machine
+        run: sh .github/first-contact/mac-strip.sh
+      - name: prove it is bare
+        run: sh .github/first-contact/mac-prove.sh
+      - name: first contact (finder, own Python, the doctor's installs, a real take)
+        run: sh .github/first-contact/mac-fc.sh
+      - name: the slow suite (real cutouts, the sample export, 4K)
+        timeout-minutes: 100
+        run: |
+          PY="$HOME/.floored/tools/python/bin/python3"
+          # the test fixtures call ffmpeg and node from PATH (the product itself does not need PATH): for this step only
+          PATH="$HOME/.floored/tools/ffmpeg:$HOME/.floored/tools/node/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          export PATH PYTHONUTF8=1
+          "$PY" -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          .venv/bin/python -m pytest -m slow -v --tb=short -rfE --durations=15
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: sh .github/first-contact/mac-restore.sh
+
+  first-contact-mac-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: /bin/sh -e {0}
+    env:
+      LAB_SYS: darwin-x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: strip the machine
+        run: sh .github/first-contact/mac-strip.sh
+      - name: prove it is bare
+        run: sh .github/first-contact/mac-prove.sh
+      - name: first contact (finder, own Python, the doctor's installs, a real take)
+        run: sh .github/first-contact/mac-fc.sh
+      - name: the slow suite (real cutouts, the sample export, 4K)
+        timeout-minutes: 100
+        run: |
+          PY="$HOME/.floored/tools/python/bin/python3"
+          # the test fixtures call ffmpeg and node from PATH (the product itself does not need PATH): for this step only
+          PATH="$HOME/.floored/tools/ffmpeg:$HOME/.floored/tools/node/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          export PATH PYTHONUTF8=1
+          "$PY" -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          .venv/bin/python -m pytest -m slow -v --tb=short -rfE --durations=15
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: sh .github/first-contact/mac-restore.sh
