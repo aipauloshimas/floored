@@ -11,7 +11,7 @@ log: `WS/floored/server.log` (the server), `WS/floored/takes/<id>/log.txt` (one 
 |---|---|---|---|
 | any except `doctor` | 5 | "floored isn't set up yet. Ask Claude to run the setup." | Run the setup flow (SKILL.md step 1 to 2). |
 | `doctor` | 0 / 1 | 0: nothing required is missing. 1: something is. | Read the report; ask once; install. |
-| `doctor --install` | 0 / 1 / 2 | 1: that step failed (see Setup). 2: no such step, or a program installed by its own command. | Show the message; for 2 on a program, run the `command` it prints (after consent). |
+| `doctor --install` | 0 / 1 / 2 | 1: that step failed (see Setup). 2: no such step, or a program installed by its own command (the browser). | Show the message; for 2 on a program, run the `command` it prints (after consent). |
 | `serve` | 1 | The studio didn't start, or one is running but silent. | See Studio. |
 | `add` | 2 | The clip is not usable, or the studio refused it. | See Adding a clip. |
 | `add`, `suggest`, `retry` | 1 | The studio couldn't be reached. | See Studio. |
@@ -25,12 +25,21 @@ log: `WS/floored/server.log` (the server), `WS/floored/takes/<id>/log.txt` (one 
 
 | Message or sign | The creator sees | Claude does |
 |---|---|---|
-| "Python 3.10 or newer isn't installed." / "Your Python is X, and floored needs 3.10 or newer." | In the setup question | Offer the report's `command` (winget or brew; else the download page). After it runs, `doctor --json` again; it finds the new program even if this shell's PATH is stale. Try `py -3` on Windows. |
-| "ffmpeg isn't installed." / "This ffmpeg is missing parts floored needs (...). Install the full build." / "ffprobe (it comes with ffmpeg) wasn't found. Reinstall ffmpeg." | In the setup question | Offer the full build by the report's `command`. A partial build (no HDR, cutout-video or final-video encoder) is not enough. |
-| Node.js missing or older than 22 ("Node.js 22 or newer is needed first. Run the install command from the doctor report.") | In the setup question | Offer the report's `command`; install it before `renderer`. |
+| `NO_PYTHON` from the finder | Nothing yet | The computer has no Python 3.10 or newer. Ask for floored's own copy, then run the finder with `--install` (SKILL.md, Run the app). |
+| "Python 3.10 or newer isn't installed." / "Your Python is X, and floored needs 3.10 or newer." | In the setup question | The note ends with "floored downloads its own copy into its own folder": on a yes, `doctor --install python`. Theirs is left alone. |
+| "ffmpeg isn't installed." / "This ffmpeg is missing parts floored needs (...)." / "ffprobe (it comes with ffmpeg) wasn't found." | In the setup question | On a yes, `doctor --install ffmpeg`: floored's own full build, in its own folder. A partial build on the computer (no HDR, cutout-video or final-video encoder) is not enough, and it is left alone. |
+| "Node.js isn't installed." / "Your Node.js is X, and floored needs 22 or newer." / "Node.js 22 or newer is needed first. Set up Node.js first (the doctor report shows how), then run this step again." | In the setup question, or after a `renderer` install | On a yes, `doctor --install node`, before `renderer`. Theirs is left alone. |
+| An item whose `how` is "manual" and whose `command` is a `winget` or `brew` line, or a web address | In the setup question | floored has no download of its own for this system (or it is the browser). Offer the `command`; after it runs, `doctor --json` again finds the new program even if this shell's PATH is stale. |
 | "Neither Chrome nor Edge was found. The studio opens in one of them." | In the setup question | Offer Chrome; Brave and Arc also work if the creator opens the address themselves. |
 | "The saved location of X was gone, so floored looked again." | A note in the report | Nothing. |
-| "Python 3.10 or newer is needed first. Run the install command from the doctor report." | After a `venv` install | Install Python first. |
+| "Python 3.10 or newer is needed first. Set up Python first (the doctor report shows how), then run this step again." | After a `venv` install | `doctor --install python` first. |
+| "Couldn't download X (...). Check the internet connection and try again." (X: Python, Node.js, ffmpeg, ffprobe; the finder says it for Python too) | After a `python`, `node` or `ffmpeg` install, or the finder's `--install` | Check the connection; run it again. |
+| "X didn't download correctly (the file isn't the expected one), so it was thrown away. Try again." / "The Python download didn't match the expected file, so it was thrown away. Try again." | Same | Run it again; if it repeats, the network is altering the file (a proxy): try another network. |
+| "The file for X has moved, so floored can't download it. Update floored, or install X yourself from <page>" | Same | Update the plugin (see Updating) and run the setup again. If it is already the newest, they install X from that page; `doctor --json` then finds it. |
+| "X was downloaded but couldn't be unpacked (...). Try again." | Same | Usually disk space. Check it; run it again. |
+| "X was downloaded but doesn't start on this computer. Install X yourself from <page>" / "The downloaded ffmpeg is missing parts floored needs (...), so it can't be used." | Same | Show the message. They install X from that page; `doctor --json` then finds it. |
+| "Couldn't replace the old copy in <folder>. Close anything that is using it, then try again." | Same | A studio or a render is using it: `APP stop --workspace WS`, then run it again. |
+| "floored has no download for X on this computer." / "This computer's system has no Python download in floored's list." | Same | An unusual system. Use the report's `command` or page for X instead. |
 | "The Python environment wasn't created." | After a `venv` install | Run it once more; then show the message. |
 | "python environment failed (exit N): ..." / "python add-ons failed ..." / "speech reader failed ..." | After a `packages` or `words` install | Usually the internet connection or disk space. Check both, run the step again. Show the last line if it repeats. |
 | "The Python add-ons installed but don't start. Run the setup again." / "The Python add-ons stopped working after the speech reader was added. Run the setup again." | After `packages` or `words` | Run `--install packages` again. |
@@ -43,7 +52,7 @@ log: `WS/floored/server.log` (the server), `WS/floored/takes/<id>/log.txt` (one 
 | "The speech reader didn't install correctly." | After a `words` install | Run it again. It is optional: the creator can type the words instead. |
 | "The cutout model is needed first." / "Install the Python add-ons first, then check again." | After `doctor --gpu-check` | Install that item, then check again. |
 | "Cutouts will use the processor (...)" | After `doctor --gpu-check` | Not an error. Say cutouts use the processor, and carry on. |
-| "There is no setup step called X." | After a bad `--install` | Use `venv`, `packages`, `rvm-model`, `renderer` or `words`. |
+| "There is no setup step called X." | After a bad `--install` | Use `python`, `node`, `ffmpeg`, `venv`, `packages`, `rvm-model`, `renderer` or `words`. |
 
 ## Studio
 
@@ -152,6 +161,9 @@ may already be out. Offer the update, and on a yes run:
 claude plugin marketplace update floored
 claude plugin update floored@floored
 ```
+
+If the `claude` command is not found (a computer with only the desktop app), run both with the Claude Code program
+this session itself runs on: the `claude` process that started your shell.
 
 Then they start a new Claude Code session: the one that is open keeps the old skill. A studio that is still open
 keeps the old app too, so run `APP stop --workspace WS` first (the takes are kept). The installed version is the
