@@ -47,6 +47,13 @@ means the creator's current project folder (the working directory); takes and ex
    than that on a slow PC) and wait for it to exit before starting the next one; never start a second install of the
    same item while one runs. While one runs, tell the creator it is still working (for the video maker: it prints almost
    nothing until it is done, so a quiet screen is normal). A failed step: [troubleshooting](reference/troubleshooting.md).
+   **A blanket go is the yes.** When the creator has already said, in their own words, to do everything without
+   asking ("do everything, don't ask me anything", "faz tudo e não me pergunta nada"), skip the question and don't
+   wait for an answer. Say in one line what you are installing, with the total size (`downloadMb` plus the speech
+   reader's `mb`) and the video maker's minutes ("Setting up floored now: 671 MB, about 13 minutes, most of it the
+   video maker"), and that the last click stays theirs: when they are back, they pick the look and press **Export**.
+   Then install everything the report lists as missing, in the order above: the manual items, the `auto` items and
+   both optional ones. A plain request for an intro is not a blanket go: then ask the one question.
 3. **No clip yet?** Show them [how to film it](reference/filming.md) in your own words (phone up high and a little
    in front, tilted down, not straight down, whole body, one spot, 3 to 8 s), then start the studio (step 4, no
    `add`). Its home page has a sample take: point at **Try the sample take**, so they can try the looks now and film
@@ -88,7 +95,8 @@ don't ask the creator for words, style or camera before the take is processing: 
   already renders at their take's size and frame rate.
 - **Never upload or send the video anywhere.** Nothing leaves the computer.
 - **Never edit `take.json` by hand.** Hooks go in through `suggest`; everything else is the studio's.
-- **Never install anything the creator didn't accept** in the one setup question.
+- **Never install anything the creator didn't accept** in the one setup question. A blanket go (step 2) accepts
+  every item.
 - **Stop only what you started.** `APP stop --workspace WS` stops this project's studio; never kill processes by name.
 
 | Excuse | Reality |
@@ -98,6 +106,7 @@ don't ask the creator for words, style or camera before the take is processing: 
 | "I'll ask for the words and style first" | Start processing first. The app suggests hooks from the speech. |
 | "I'll hand-build it with the hyperframes skill, it's faster" | The app is the product. Use it. |
 | "Setup is small, I'll just install it" | Ask once, with sizes. Then install. |
+| "They said don't ask, but a download this big needs their yes" | A blanket go is the yes. Say in one line what you install, then install. |
 | "I'll tell them it takes about N minutes" | Quote the studio's estimate. |
 | "They have no clip, so I'll offer to make one for them" | The take is theirs to film. Show the filming guide and point at the sample take. |
 | "The export failed, I'll run `retry`" | `retry` is for takes. Read Export problems in troubleshooting, then the export's log. |
