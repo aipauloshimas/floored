@@ -288,6 +288,55 @@ def check_clip(path, log):
     return dur
 
 
+# ------------------------------------------------------------------------------------------- reading the folder
+# Read only, no server needed: the studio's API and `floored.py status` both list takes through these.
+
+def read_take(takes_dir, sample_dir, tid, last=None):
+    """{take, status} for one take folder, or None. `last` is the studio's memory of the status it wrote last."""
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', tid or '') or tid.startswith('.'):
+        return None
+    d = sample_dir if (tid == 'sample' and sample_dir) else os.path.join(takes_dir, tid)
+    if not os.path.isdir(d):
+        return None
+    take = read_json(os.path.join(d, 'take.json'))
+    status = read_json(os.path.join(d, 'status.json')) or (last or {}).get(tid)
+    if take is None and status is None:
+        return None
+    if status is None:
+        status = {'stage': 'ready', 'progress': 1, 'message': 'Ready'}
+    return {'take': take or {'id': tid, 'name': tid}, 'status': status}
+
+
+def list_takes(takes_dir, sample_dir=None, last=None):
+    """Every take of the folder (newest first, the built-in sample last) as {take, status}."""
+    items = []
+    try:
+        ids = [t for t in os.listdir(takes_dir) if os.path.isdir(os.path.join(takes_dir, t)) and t != 'sample']
+    except OSError:
+        ids = []
+    if sample_dir and os.path.isdir(sample_dir):
+        ids.append('sample')
+    for tid in ids:
+        item = read_take(takes_dir, sample_dir, tid, last)
+        if item:
+            items.append(item)
+    items.sort(key=lambda it: str(it['take'].get('created') or ''), reverse=True)
+    items.sort(key=lambda it: it['take'].get('id') == 'sample')
+    return items
+
+
+def take_summaries(items):
+    """The short list `status` prints: [{id, name, stage, progress}], the built-in sample left out."""
+    out = []
+    for item in items:
+        t, st = item['take'], item['status'] or {}
+        if t.get('id') == 'sample':
+            continue
+        out.append({'id': t.get('id'), 'name': t.get('name'), 'stage': st.get('stage'),
+                    'progress': st.get('overall', st.get('progress', 0))})
+    return out
+
+
 # ------------------------------------------------------------------------------------------------------ the queue
 
 class Pipeline:
@@ -316,32 +365,10 @@ class Pipeline:
 
     def get(self, tid):
         """{take, status} for one take, or None."""
-        if not re.fullmatch(r'[A-Za-z0-9_.-]+', tid or '') or tid.startswith('.'):
-            return None
-        d = self.folder(tid)
-        if not os.path.isdir(d):
-            return None
-        take = read_json(os.path.join(d, 'take.json'))
-        status = read_json(os.path.join(d, 'status.json')) or self.last.get(tid)
-        if take is None and status is None:
-            return None
-        if status is None:
-            status = {'stage': 'ready', 'progress': 1, 'message': 'Ready'}
-        return {'take': take or {'id': tid, 'name': tid}, 'status': status}
+        return read_take(self.takes, self.sample, tid, self.last)
 
     def list(self):
-        items = []
-        ids = [t for t in os.listdir(self.takes) if os.path.isdir(os.path.join(self.takes, t)) and t != 'sample']
-        if self.sample and os.path.isdir(self.sample):
-            ids.append('sample')
-        for tid in ids:
-            item = self.get(tid)
-            if item:
-                items.append(item)
-        # newest first, the sample last
-        items.sort(key=lambda it: str(it['take'].get('created') or ''), reverse=True)
-        items.sort(key=lambda it: it['take'].get('id') == 'sample')
-        return items
+        return list_takes(self.takes, self.sample, self.last)
 
     # -- uploads ---------------------------------------------------------------------------------------------
     def begin_upload(self, filename):

@@ -26,7 +26,7 @@ API (app/SPEC.md "Server API"):
                                list) merge suggestions, smallSuggestions and suggestionsRev into `take` (the workspace's win)
   POST /api/takes/<id>/retry   re-queue a failed take from its first unfinished stage -> {ok, from}; 404 / 409 / 422 {error}
   GET  /api/info               {version, workspace, pid, estimates: {renderSecPerFrame: {"1", "2"}}}
-  GET  /api/status             {url, takes: [{id, stage, progress}], exports: [{id, stage}]}
+  GET  /api/status             {running, url, takes: [{id, name, stage, progress}], exports: [{id, stage}]}
 Errors are JSON {error} with a 4xx/5xx status.
 """
 import email.utils
@@ -253,23 +253,8 @@ class Server(ThreadingHTTPServer):
                 'estimates': {'renderSecPerFrame': render_estimates()}}
 
     def status(self):
-        takes = []
-        for item in self.pipe.list():
-            t, st = item['take'], item['status'] or {}
-            if t.get('id') == 'sample':
-                continue
-            takes.append({'id': t.get('id'), 'stage': st.get('stage'), 'progress': st.get('overall', st.get('progress', 0))})
-        try:
-            ids = sorted((d for d in os.listdir(self.exports_dir) if os.path.isdir(os.path.join(self.exports_dir, d))),
-                         reverse=True)
-        except OSError:
-            ids = []
-        exports = []
-        for eid in ids[:50]:
-            st = self.exporter.status(eid)
-            if st:
-                exports.append({'id': eid, 'stage': st.get('stage')})
-        return {'url': self.url, 'takes': takes, 'exports': exports}
+        return {'running': True, 'url': self.url, 'takes': pipeline.take_summaries(self.pipe.list()),
+                'exports': export.export_summaries(self.exports_dir, self.exporter.status)}
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], BENIGN):        # the browser closed a video request mid-way: normal

@@ -409,6 +409,37 @@ def loudness(path):
     return (float(i.group(1)) if i else None, float(p.group(1)) if p else None)
 
 
+# -- reading the exports folder (no server needed) --------------------------------------------------------------
+def read_export_status(exports_dir, eid):
+    """The status.json of a finished or abandoned export, or None. One that was still running when its server went
+    away reads as an error."""
+    if not isinstance(eid, str) or not EXPORT_ID.fullmatch(eid):
+        return None
+    st = read_json(os.path.join(str(exports_dir), eid, 'status.json'))
+    if st is None:
+        return None
+    if st.get('stage') not in ('done', 'error'):          # the server restarted mid-export
+        st = dict(st, stage='error', progress=0, message='The server restarted before this export was finished. Export again.',
+                  error='The server restarted before this export was finished. Export again.')
+    return st
+
+
+def export_summaries(exports_dir, status_fn=None, limit=50):
+    """[{id, stage}] newest first. status_fn(eid) -> status lets a running studio answer from memory."""
+    status_fn = status_fn or (lambda eid: read_export_status(exports_dir, eid))
+    try:
+        ids = sorted((d for d in os.listdir(str(exports_dir)) if os.path.isdir(os.path.join(str(exports_dir), d))),
+                     reverse=True)
+    except OSError:
+        ids = []
+    out = []
+    for eid in ids[:limit]:
+        st = status_fn(eid)
+        if st:
+            out.append({'id': eid, 'stage': st.get('stage')})
+    return out
+
+
 # -- the exporter -------------------------------------------------------------------------------------------------
 class Exporter:
     def __init__(self, pipe, exports_dir):
@@ -471,13 +502,7 @@ class Exporter:
             return None
         job = self.jobs.get(eid)
         if job is None:
-            st = read_json(os.path.join(self.exports, eid, 'status.json'))
-            if st is None:
-                return None
-            if st.get('stage') not in ('done', 'error'):          # the server restarted mid-export
-                st = dict(st, stage='error', progress=0, message='The server restarted before this export was finished. Export again.',
-                          error='The server restarted before this export was finished. Export again.')
-            return st
+            return read_export_status(self.exports, eid)
         with self.lock:
             return self._public(job)
 
