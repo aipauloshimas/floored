@@ -2,6 +2,7 @@ import { browserNotice, byId, f1, fill, h, ico, noop, setAccent, topbar } from '
 import { api, capturePoster, posterImg, uploadFile } from './api.js';
 import { LOOKS, PALETTES, cachedPrefs, ssSet } from './store.js';
 import { FILMING } from './copy.js';
+import { onReach } from './reach.js';
 
 /* the pictures of good and bad takes live in img/filming/; size attributes keep the page from jumping as they load */
 function figure(file, w, hgt, alt, cls) {
@@ -129,7 +130,7 @@ export function homeScreen() {
       takesBox,
       examplesSection()));
 
-  api('/api/takes').then(function (list) {
+  function loadTakes() { return api('/api/takes').then(function (list) {
     if (disposed || !Array.isArray(list)) return;
     var mine = list.filter(function (it) { return it && it.take && it.take.id !== 'sample'; });
     if (!mine.length) return;
@@ -143,13 +144,15 @@ export function homeScreen() {
           h('span', { class: 'take-info' }, h('strong', { text: t.name || t.id }), h('span', { class: 'muted', text: meta })),
           h('span', { class: 'status-dot ' + (ready ? 'ok' : failed ? 'bad' : 'busy'), title: ready ? 'Ready' : failed ? 'Needs attention' : 'Working on it' }));
       })));
-  }).catch(noop);
+  }).catch(noop); }
+  loadTakes();
+  var stopReach = onReach(function (gone) { if (!gone && !disposed) loadTakes(); });
 
   var lastLook = byId(LOOKS, cachedPrefs().lastLook);
   setAccent(byId(PALETTES, lastLook ? lastLook.palette : 'sage-red'));
   return {
     el: el,
     ready: Promise.resolve(),
-    dispose: function () { disposed = true; window.removeEventListener('dragover', stopStray); window.removeEventListener('drop', stopStray); }
+    dispose: function () { disposed = true; stopReach(); window.removeEventListener('dragover', stopStray); window.removeEventListener('drop', stopStray); }
   };
 }

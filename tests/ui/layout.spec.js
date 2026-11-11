@@ -475,6 +475,31 @@ test('screenshots for the taste pass', async ({ page }) => {
   await expect(page.locator('.format-estimate')).toBeVisible();
   await shot('export-4k-680x900');
 
+  // the studio stopped: the banner on the home screen, in the studio and over the Export dialog (the server is faked dead, never stopped)
+  page.allowConsoleError(/Failed to load resource|ERR_FAILED|net::ERR/);
+  const dead = (route) => route.abort();
+  for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const tag = vp.width + 'x' + vp.height;
+    await page.setViewportSize(vp);
+    await page.route('**/api/**', dead);
+    await page.goto('/');
+    await expect(page.getByRole('status').filter({ hasText: 'The studio stopped' })).toBeVisible();
+    await shot('home-stopped-' + tag);
+    await page.unroute('**/api/**', dead);
+    await expect(page.getByRole('status').filter({ hasText: 'The studio stopped' })).toBeHidden({ timeout: 8000 });
+    await openSample(page);
+    await page.route('**/api/**', dead);
+    await page.locator('.panel .look-card').nth(2).click();
+    await expect(page.getByRole('status').filter({ hasText: 'The studio stopped' })).toBeVisible();
+    await shot('studio-stopped-' + tag);
+    await page.getByRole('button', { name: 'Export' }).click();
+    await page.getByRole('dialog', { name: 'Export your intro' }).getByRole('button', { name: 'Render', exact: true }).click();
+    await expect(page.getByText('The render did not finish')).toBeVisible();
+    await shot('export-stopped-' + tag);
+    await page.unroute('**/api/**', dead);
+    await expect(page.getByRole('status').filter({ hasText: 'The studio stopped' })).toBeHidden({ timeout: 8000 });
+  }
+
   await notChromium(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
