@@ -307,6 +307,20 @@ jobs:
       - name: first contact (finder, own Python, the doctor's installs, a real take)
         run: .github\lab\fc-windows.ps1
 
+      - name: the slow suite (real cutouts, the sample export, 4K)
+        timeout-minutes: 100
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $fh = Join-Path $env:USERPROFILE '.floored'
+          $py = Join-Path $fh 'tools\python\python.exe'
+          # the test fixtures call ffmpeg and node from PATH (the product itself does not need PATH): for this step only
+          $env:PATH = "$fh\tools\ffmpeg;$fh\tools\node;$env:PATH"
+          $env:PYTHONUTF8 = '1'
+          & $py -m venv .venv; if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .venv\Scripts\python.exe -m pip install --upgrade pip; if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt; if ($LASTEXITCODE -ne 0) { exit 1 }
+          & .venv\Scripts\python.exe -m pytest -m slow -v --tb=short -rfE --durations=15
+          exit $LASTEXITCODE
       - name: put the machine back
         if: always()
         continue-on-error: true
@@ -333,6 +347,17 @@ jobs:
         run: sh .github/lab/mac-prove.sh
       - name: first contact (finder, own Python, the doctor's installs, a real take)
         run: sh .github/lab/mac-fc.sh
+      - name: the slow suite (real cutouts, the sample export, 4K)
+        timeout-minutes: 100
+        run: |
+          PY="$HOME/.floored/tools/python/bin/python3"
+          # the test fixtures call ffmpeg and node from PATH (the product itself does not need PATH): for this step only
+          PATH="$HOME/.floored/tools/ffmpeg:$HOME/.floored/tools/node/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          export PATH PYTHONUTF8=1
+          "$PY" -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          .venv/bin/python -m pytest -m slow -v --tb=short -rfE --durations=15
       - name: put the machine back
         if: always()
         continue-on-error: true
@@ -354,6 +379,17 @@ jobs:
         run: sh .github/lab/mac-prove.sh
       - name: first contact (finder, own Python, the doctor's installs, a real take)
         run: sh .github/lab/mac-fc.sh
+      - name: the slow suite (real cutouts, the sample export, 4K)
+        timeout-minutes: 100
+        run: |
+          PY="$HOME/.floored/tools/python/bin/python3"
+          # the test fixtures call ffmpeg and node from PATH (the product itself does not need PATH): for this step only
+          PATH="$HOME/.floored/tools/ffmpeg:$HOME/.floored/tools/node/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          export PATH PYTHONUTF8=1
+          "$PY" -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          .venv/bin/python -m pytest -m slow -v --tb=short -rfE --durations=15
       - name: put the machine back
         if: always()
         continue-on-error: true

@@ -14,7 +14,7 @@ function Finder($extra) {
   if ($extra) { $a += $extra }
   $o = & powershell @a 2> (Join-Path $work 'finder.err')
   $script:rc = $LASTEXITCODE
-  "stderr: $(Get-Content (Join-Path $work 'finder.err') -Raw)"
+  Write-Host "stderr: $(Get-Content (Join-Path $work 'finder.err') -Raw)"
   return (@($o) -join "`n").Trim()
 }
 function Dr($name, $a) {
