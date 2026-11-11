@@ -23,7 +23,7 @@ becomes 0.5 * old + 0.5 * measured.
 
 take.json is the contract the studio, the Claude bridge and the export read. Geometry (feet, height, k0, aoWidth) is
 always in 1080 units; `w`, `h`, `fps`, `frames` describe that frame, `out` the render (stage size, stage frame rate,
-max(upload bitrate, 8 Mbps)), `files` the media names (`preview` = the proxy for tier 2, else person.webm; `audio` is
+the upload's bitrate), `files` the media names (`preview` = the proxy for tier 2, else person.webm; `audio` is
 null for a silent clip), `bitrate` the upload's own.
 
 DEV / TEST ONLY: FT_FAKE_MATTE=1 replaces the cutout with sample/person.webm scaled to the stage size and looped or trimmed
@@ -51,7 +51,6 @@ from ft.media import (STAGE_BASE, PipelineError, ffmpeg_rate, fps_value, make_pr
 from ft.proc import NO_WINDOW, MissingTool, kill_tree, run, run_lines, tool
 
 VIDEO_EXTS = ('.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi')
-MIN_OUT_BITRATE = 8_000_000                # the export never goes below 8 Mbps
 STALE = ('queued', 'checking', 'cutting', 'measuring', 'shadow', 'words')
 STAGE_ORDER = ('checking', 'cutting', 'measuring', 'shadow')       # the stages that leave files; 'words' always runs last
 WEIGHTS = (('checking', 0.05), ('cutting', 0.75), ('measuring', 0.07), ('shadow', 0.05), ('words', 0.08))
@@ -601,7 +600,7 @@ class Pipeline:
                          'w': STAGE_BASE[0], 'h': STAGE_BASE[1], 'fps': fps_value(fps), 'frames': frames, 'dur': dur,
                          'bitrate': info['bitrate'], 'hasAudio': has_audio,
                          'out': {'w': sw, 'h': sh, 'fps': fps_value(fps), 'fpsStr': fps_str,
-                                 'bitrate': int(max(info['bitrate'], MIN_OUT_BITRATE))},
+                                 'bitrate': int(info['bitrate'])},
                          'files': {'person': 'person.webm', 'preview': 'person_proxy.webm' if t == 2 else 'person.webm',
                                    'shadow': 'shadow.webm', 'audio': 'audio.m4a' if has_audio else None},
                          'warnings': []})

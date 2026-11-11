@@ -75,7 +75,7 @@ def test_tier1_end_to_end(ws, made, portrait_1080):
     assert take['tier'] == 1
     assert take['files'] == {'person': 'person.webm', 'preview': 'person.webm', 'shadow': 'shadow.webm', 'audio': 'audio.m4a'}
     assert take['out'] == {'w': 1080, 'h': 1920, 'fps': 30, 'fpsStr': '30', 'bitrate': take['out']['bitrate']}
-    assert take['out']['bitrate'] >= 8_000_000
+    assert take['out']['bitrate'] == take['bitrate'] > 0                       # the upload's own: no minimum is added
     assert (take['w'], take['h'], take['fps'], take['frames']) == (1080, 1920, 30, 15)
     assert take['feet'] and take['k0'] and take['aoWidth'] and take['height'] > 150
     assert video_size(os.path.join(d, 'person.webm'), 'libvpx-vp9') == (1080, 1920, 15)

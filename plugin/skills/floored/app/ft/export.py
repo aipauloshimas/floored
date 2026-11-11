@@ -8,25 +8,23 @@ One export at a time. Everything lands in exports/<stamp>/:
 
     index.html, assets/...       the filled composition (SPEC "Export template")
     render.mp4                   HyperFrames' near-lossless render (CRF 8)
-    video.mp4                    our own encode of it (x264 CRF 14, or two-pass at the floor), picture only
+    video.mp4                    our own encode of it (x264 CRF 14), picture only
     sfx.wav, premix.wav          the synthesised effects, and voice + effects before loudness normalisation
     (all of these, and assets/, are deleted once the export passed its check; a failed export keeps them for the log)
     <take name> - floored.mp4 the result (video copied, AAC 192k, about -14 LUFS)
     job.json, status.json, export.log
 
 Renders keep the take's quality, from take.json's `out`: the take's size (1080x1920, or 2160x3840 for a 4K take), its
-frame rate, H.264, video bitrate at least max(upload bitrate, 8 Mbps). The picture is made in two steps, because a
-bitrate-mode encode drops the faint, frame-varying film grain of some looks (dev/notes/acceptance-2026-11-09.md, section 4):
-HyperFrames renders a near-lossless intermediate (`--crf 8`), then ffmpeg encodes it at constant quality (x264 CRF 14,
-preset slow). When that comes out below the floor (flat looks), the same intermediate is encoded again, two-pass, at the
-floor plus 5 %. The composition keeps the 1080 layout; a 4K take
+frame rate and H.264. The picture is made in two steps, because a bitrate-mode encode drops the faint, frame-varying
+film grain of some looks (dev/notes/acceptance-2026-11-09.md, section 4): HyperFrames renders a near-lossless
+intermediate (`--crf 8`), then ffmpeg encodes it once at constant quality (x264 CRF 14, preset slow). The video bitrate
+is whatever that gives: the log says it beside the take's own. The composition keeps the 1080 layout; a 4K take
 is rendered with HyperFrames' own `--resolution portrait-4k` (Chrome at device scale 2) over the full-resolution cutout
 (`take.files.person`). The renderer is the locally installed, pinned HyperFrames (renderer_bin(); never npx), run with the
 telemetry opt-out so a finished setup works offline. Before `done` the file is probed (check_output): size, frame rate,
 frame count, video bitrate and loudness must match the take, or the export ends in `error` and says so.
 """
 import json
-import math
 import os
 import queue
 import re
@@ -53,11 +51,9 @@ CHECK_FAILED = ("The export didn't come out at your take's quality, so we stoppe
                 "ask Claude for help.")
 DEFAULT_RENDER_SEC_PER_FRAME = {'1': 1.3, '2': 2.7}   # wall-clock s per frame until this machine has a measured value
 CHROME_PATH_BUDGET = 200       # characters; Windows stops at 260 and HyperFrames then exits with no message (renderer.md)
-MIN_MBPS = 8
 INTERMEDIATE_CRF = 8           # HyperFrames' render: near-lossless H.264, so the grain reaches our own encode intact
 ENCODE_CRF = 14                # our encode of it: constant quality, which keeps the grain (a bitrate-mode encode freezes it)
 ENCODE_PRESET = 'slow'
-BITRATE_MARGIN = 1.05      # ask the encoder for 5 % more than the floor: x264 averages ~1-2 % under what it is asked
 SR = 48000
 LUFS, TRUE_PEAK, LRA = -14.0, -1.0, 11.0
 SFX_UNDER_VOICE_DB = 6.0
@@ -169,12 +165,14 @@ def renderer_env():
 
 
 def out_spec(take):
-    """take.json's `out` {w, h, fps, fpsStr, bitrate}; a take written before it existed gets it from w, h, fps, bitrate."""
+    """take.json's `out` {w, h, fps, fpsStr}; a take written before it existed gets them from w, h, fps. `bitrate` is the
+    upload's own (the take's top-level field): `out.bitrate` is only the fallback, because some takes carry a value there
+    that was raised to 8 Mbps."""
     out = take.get('out') if isinstance(take.get('out'), dict) else {}
     fps = float(out.get('fps') or take.get('fps') or 0)
     return {'w': int(out.get('w') or take.get('w') or 1080), 'h': int(out.get('h') or take.get('h') or 1920), 'fps': fps,
             'fpsStr': str(out.get('fpsStr') or fps_arg(fps)),
-            'bitrate': int(out.get('bitrate') or take.get('bitrate') or 0)}
+            'bitrate': int(take.get('bitrate') or out.get('bitrate') or 0)}
 
 
 def take_files(take):
@@ -182,16 +180,6 @@ def take_files(take):
     files = take.get('files') if isinstance(take.get('files'), dict) else {}
     return {'person': files.get('person') or 'person.webm', 'shadow': files.get('shadow') or 'shadow.webm',
             'audio': files['audio'] if 'audio' in files else ('audio.m4a' if take.get('hasAudio') else None)}
-
-
-def floor_mbps(bitrate):
-    """The floor in Mbps: the larger of the take's bitrate and 8 Mbps."""
-    return max(float(bitrate or 0), MIN_MBPS * 1e6) / 1e6
-
-
-def abr_bitrate(bitrate):
-    """Bits per second for the floor re-encode: ceil(max(take, 8 Mbps) x 1.05)."""
-    return int(math.ceil(max(float(bitrate or 0), MIN_MBPS * 1e6) * BITRATE_MARGIN - 1e-6))
 
 
 def render_cmd(base, comp_dir, dest, out):
@@ -235,16 +223,8 @@ def encode_cmd(src, dest):
     return _x264_head(src) + ['-crf', str(ENCODE_CRF)] + _TAGS + ['-movflags', '+faststart', dest]
 
 
-def abr_cmds(src, dest, bitrate, passlog):
-    """Two-pass ABR from the same intermediate at the floor (+5 %): (pass 1, pass 2)."""
-    rate = str(abr_bitrate(bitrate))
-    first = _x264_head(src) + ['-b:v', rate, '-pass', '1', '-passlogfile', passlog] + _TAGS + ['-f', 'null', os.devnull]
-    second = _x264_head(src) + ['-b:v', rate, '-pass', '2', '-passlogfile', passlog] + _TAGS + ['-movflags', '+faststart', dest]
-    return first, second
-
-
 def encode_timeout(frames, tier):
-    """Seconds an encode pass may take: at least 10 min, else frames x (2 s at 1080, 8 s at 4K)."""
+    """Seconds the encode may take: at least 10 min, else frames x (2 s at 1080, 8 s at 4K)."""
     return max(600, int(frames * (8 if tier == 2 else 2)))
 
 
@@ -307,7 +287,7 @@ def check_output(path, out, frames, expect_lufs, expect_audio=False):
     if got['frames'] != frames:
         problems.append('%d frames, wanted %d' % (got['frames'], frames))
     # the video bitrate is not checked: a flat drawn picture comes out near lossless under the take's own bitrate, so a
-    # file under the floor is finished and fine (the worker logs the number)
+    # file under it is finished and fine (the worker logs both numbers)
     if expect_audio:
         first = got['audio'][0] if got['audio'] else None
         if not first:
@@ -622,7 +602,7 @@ class Exporter:
 
         # 2. rendering
         t1 = time.time()
-        mbps = floor_mbps(out['bitrate'])                      # the floor: never below the take (min 8 Mbps)
+        take_bps = float(out['bitrate'] or 0)                  # the take's own bitrate (0 when unknown): logged, never a target
         notes = []
         self._set(job, 'rendering', 0.0, 'Starting the render')
         last = {'p': 0.0}
@@ -659,7 +639,7 @@ class Exporter:
                                                                        os.path.getsize(render) / 1e6))
         timings['rendering'] = round(time.time() - t1, 1)
 
-        # 2b. our encode of the intermediate (constant quality; two-pass at the floor when that comes out below it)
+        # 2b. our encode of the intermediate (one pass, constant quality)
         t1b = time.time()
         encoded = self._encode(job, render, video, out, frames, tier)
         timings['encoding'] = round(time.time() - t1b, 1)
@@ -691,11 +671,10 @@ class Exporter:
         problems, numbers = check_output(final, out, frames, bool(audio_info and audio_info.get('voice')),
                                          expect_audio=bool(audio_info))
         self._log(job, 'check: %s' % json.dumps(numbers, default=str))
-        floor_bps = floor_mbps(out['bitrate']) * 1e6
-        if numbers['videoBitrate'] < floor_bps:
-            self._log(job, "note: video bitrate %.2f Mbps is under the %.2f Mbps floor (the take's bitrate, %g Mbps at least). "
-                      "That never stops an export: the file is kept."
-                      % (numbers['videoBitrate'] / 1e6, floor_bps / 1e6, MIN_MBPS))
+        if numbers['videoBitrate'] < take_bps:
+            self._log(job, "note: video bitrate %.2f Mbps is under the take's %.2f Mbps. That is normal for a drawn floor at "
+                      "constant quality (CRF %d) and never stops an export."
+                      % (numbers['videoBitrate'] / 1e6, take_bps / 1e6, ENCODE_CRF))
         if problems:
             self._log(job, 'CHECK FAILED: %s' % '; '.join(problems))
             raise ExportError(CHECK_FAILED, 500)
@@ -703,7 +682,7 @@ class Exporter:
         timings['total'] = round(time.time() - t0, 1)
         details = {'width': numbers['width'], 'height': numbers['height'], 'fps': numbers['fps'], 'codec': numbers['codec'],
                    'duration': round(numbers['duration'], 3), 'videoBitrate': numbers['videoBitrate'],
-                   'targetMbps': round(mbps, 2), 'audio': audio_info, 'lufs': numbers['lufs'], 'truePeak': numbers['truePeak'],
+                   'takeMbps': round(take_bps / 1e6, 2), 'audio': audio_info, 'lufs': numbers['lufs'], 'truePeak': numbers['truePeak'],
                    'tier': tier, 'timings': timings, 'notes': notes, 'encode': encoded}
         self._log(job, 'done: %s' % json.dumps(details))
         rel = os.path.basename(final)
@@ -724,56 +703,24 @@ class Exporter:
             self._log(job, 'WARNING: could not remove the assets folder')
 
     def _encode(self, job, src, dest, out, frames, tier):
-        """src (the near-lossless render) -> dest, x264 at CRF 14. If its video bitrate is below the floor, encode src
-        again two-pass at floor + 5 %. Logs both results; returns {crf, crfBitrate, floorMbps, floorReencode, bitrate}.
-        A failed encode keeps src and says where."""
-        floor = floor_mbps(out['bitrate']) * 1e6
-        base_p = RENDER_SHARE
+        """src (the near-lossless render) -> dest, one x264 encode at CRF 14. Logs its bitrate beside the take's; returns
+        {crf, bitrate}. A failed encode keeps src and says where."""
+        take_bps = float(out['bitrate'] or 0)
 
-        def on_encode(lo, hi):                               # ffmpeg -progress prints `frame=N`: map it into lo..hi of the bar
-            def f(line):
-                m = re.match(r'frame=(\d+)', line)
-                if m and frames:
-                    self._set(job, 'rendering', lo + (hi - lo) * min(int(m.group(1)) / float(frames), 1.0), 'Encoding the video')
-            return f
+        def on_encode(line):                                 # ffmpeg -progress prints `frame=N`: map it into RENDER_SHARE..0.99 of the bar
+            m = re.match(r'frame=(\d+)', line)
+            if m and frames:
+                self._set(job, 'rendering', RENDER_SHARE + (0.99 - RENDER_SHARE) * min(int(m.group(1)) / float(frames), 1.0),
+                          'Encoding the video')
 
-        def fail(code, tail):
-            raise ExportError("The video couldn't be encoded: %s" % (' / '.join(tail[-3:])[:300] or 'no output'), 500)
-
-        self._set(job, 'rendering', base_p, 'Encoding the video')
-        code, tail = self._stream(job, encode_cmd(src, dest), on_encode(base_p, 0.9), encode_timeout(frames, tier))
+        self._set(job, 'rendering', RENDER_SHARE, 'Encoding the video')
+        code, tail = self._stream(job, encode_cmd(src, dest), on_encode, encode_timeout(frames, tier))
         if code != 0 or not os.path.exists(dest):
-            fail(code, tail)
+            raise ExportError("The video couldn't be encoded: %s" % (' / '.join(tail[-3:])[:300] or 'no output'), 500)
         got = probe_bitrate(dest)
-        info = {'crf': ENCODE_CRF, 'crfBitrate': got, 'floorMbps': round(floor / 1e6, 2), 'floorReencode': False, 'bitrate': got}
-        self._log(job, 'encode: crf %d %s gives %.2f Mbps, %.1f MB; floor %.2f Mbps'
-                  % (ENCODE_CRF, ENCODE_PRESET, got / 1e6, os.path.getsize(dest) / 1e6, floor / 1e6))
-        if got < floor:
-            rate = abr_bitrate(out['bitrate'])
-            self._log(job, 'floor re-encode: ran (%.2f Mbps is under the %.2f Mbps floor), two-pass at %.2f Mbps'
-                      % (got / 1e6, floor / 1e6, rate / 1e6))
-            self._set(job, 'rendering', 0.9, 'Encoding the video')
-            first, second = abr_cmds(src, dest, out['bitrate'], 'x264pass')
-            d = job['dir']
-            try:
-                for n, cmd in enumerate((first, second)):
-                    code, tail = self._stream(job, cmd, on_encode(0.9 + 0.045 * n, 0.945 + 0.045 * n), encode_timeout(frames, tier), cwd=d)
-                    if code != 0:
-                        fail(code, tail)
-            finally:                                         # a failed pass leaves its stats files too
-                for leftover in os.listdir(d):
-                    if leftover.startswith('x264pass'):
-                        try:
-                            os.remove(os.path.join(d, leftover))
-                        except OSError:
-                            pass
-            if not os.path.exists(dest):
-                fail(1, [])
-            info.update(floorReencode=True, bitrate=probe_bitrate(dest), abrBitrate=rate)
-            self._log(job, 'floor re-encode: gives %.2f Mbps, %.1f MB' % (info['bitrate'] / 1e6, os.path.getsize(dest) / 1e6))
-        else:
-            self._log(job, 'floor re-encode: not needed')
-        return info
+        self._log(job, "encode: crf %d %s gives %.2f Mbps, %.1f MB (the take: %.2f Mbps)"
+                  % (ENCODE_CRF, ENCODE_PRESET, got / 1e6, os.path.getsize(dest) / 1e6, take_bps / 1e6))
+        return {'crf': ENCODE_CRF, 'bitrate': got}
 
     def _mix(self, job, video, voice, sfx_wav, final, vdur):
         """Voice + effects (6 dB under the voice peak) -> loudnorm two-pass -> AAC 192k beside the copied video.

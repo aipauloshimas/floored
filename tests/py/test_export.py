@@ -110,14 +110,6 @@ def make_take(project, tid, mutate=None, drop=()):
 
 
 # ================================================================================================== fast: the helpers
-def test_abr_bitrate_is_floor_plus_margin():
-    assert export.abr_bitrate(5_371_982) == 8_400_000      # max(5.37, 8) Mbps x 1.05
-    assert export.abr_bitrate(0) == 8_400_000
-    assert export.abr_bitrate(8_000_000) == 8_400_000
-    assert export.abr_bitrate(20_000_000) == 21_000_000    # exactly (no float creep to 21_000_001)
-    assert export.abr_bitrate(11_400_000) == 11_970_000
-
-
 OUT1 = {'w': 1080, 'h': 1920, 'fps': 24.0, 'fpsStr': '24', 'bitrate': 5_371_982}
 OUT4 = {'w': 2160, 'h': 3840, 'fps': 23.976, 'fpsStr': '24000/1001', 'bitrate': 30_000_000}
 
@@ -150,9 +142,9 @@ def _tags(path):
     return json.loads(out)['streams'][0]
 
 
-def test_both_encodes_write_the_bt709_tags_into_the_stream_from_an_untagged_source(tmp_path):
+def test_the_encode_writes_the_bt709_tags_into_the_stream_from_an_untagged_source(tmp_path):
     """ffmpeg 8.1 ignores -color_primaries / -color_trc as output options: only x264's own params tag the H.264 stream, so
-    prove it on a source with no tags at all, for the CRF encode and for the two-pass floor encode."""
+    prove it on a source with no tags at all, for the CRF encode."""
     src = tmp_path / 'src.mp4'
     _ff('-f', 'lavfi', '-i', 'testsrc2=s=128x224:r=24', '-frames:v', 12, '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', src)
     assert _tags(src).get('color_primaries') in (None, 'unknown')                         # really untagged
@@ -161,22 +153,6 @@ def test_both_encodes_write_the_bt709_tags_into_the_stream_from_an_untagged_sour
     r = subprocess.run(export.encode_cmd(str(src), str(crf)), capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-500:]
     assert {k: _tags(crf).get(k) for k in want} == want
-    abr = tmp_path / 'abr.mp4'
-    first, second = export.abr_cmds(str(src), str(abr), 8_000_000, 'x264pass')
-    for cmd in (first, second):
-        r = subprocess.run(cmd, capture_output=True, text=True, cwd=tmp_path)
-        assert r.returncode == 0, r.stderr[-500:]
-    assert {k: _tags(abr).get(k) for k in want} == want
-
-
-def test_abr_cmds_are_two_passes_from_the_same_intermediate_at_the_floor():
-    first, second = export.abr_cmds('render.mp4', 'video.mp4', 5_371_982, 'x264pass')
-    for c, n in ((first, '1'), (second, '2')):
-        assert _flag(c, '-i') == 'render.mp4' and _flag(c, '-b:v') == '8400000' and _flag(c, '-pass') == n
-        assert _flag(c, '-passlogfile') == 'x264pass' and _flag(c, '-preset') == 'slow' and '-crf' not in c
-        assert _flag(c, '-colorspace') == 'bt709'
-    assert first[-3:] == ['-f', 'null', os.devnull] and second[-1] == 'video.mp4' and _flag(second, '-movflags') == '+faststart'
-    assert _flag(export.abr_cmds('r', 'v', 40_000_000, 'p')[0], '-b:v') == '42000000'
 
 
 class _Spy:
@@ -194,11 +170,7 @@ class _Spy:
             spy.cmds.append((cmd, cwd))
             if fail_on is not None and len(spy.cmds) == fail_on:
                 return 1, ['boom']
-            if cmd[-1] != os.devnull:
-                Path(cmd[-1]).write_bytes(b'1' * 1000)
-            else:                                                       # pass 1 leaves its stats files
-                (tmp_path / 'x264pass-0.log').write_text('stats')
-                (tmp_path / 'x264pass-0.log.mbtree').write_text('stats')
+            Path(cmd[-1]).write_bytes(b'1' * 1000)
             return 0, []
         monkeypatch.setattr(self.exp, '_stream', stream)
         monkeypatch.setattr(export, 'probe_bitrate', lambda path: spy.bitrates.pop(0))
@@ -210,34 +182,20 @@ class _Spy:
         return (self.d / 'export.log').read_text(encoding='utf-8')
 
 
-def test_encode_stays_at_crf_when_it_clears_the_floor(tmp_path, monkeypatch):
+def test_encode_runs_one_crf_encode_when_it_is_over_the_takes_bitrate(tmp_path, monkeypatch):
     spy = _Spy(tmp_path, monkeypatch, [20_000_000])
     info = spy.encode()
     assert len(spy.cmds) == 1 and _flag(spy.cmds[0][0], '-crf') == '14'
-    assert info['floorReencode'] is False and info['crfBitrate'] == 20_000_000 and info['bitrate'] == 20_000_000
-    log = spy.log()
-    assert 'crf 14 slow gives 20.00 Mbps' in log and 'floor re-encode: not needed' in log
+    assert info == {'crf': 14, 'bitrate': 20_000_000}
+    assert 'crf 14 slow gives 20.00 Mbps' in spy.log() and '(the take: 5.37 Mbps)' in spy.log()
 
 
-def test_encode_falls_back_to_two_pass_when_the_crf_result_is_under_the_floor(tmp_path, monkeypatch):
-    spy = _Spy(tmp_path, monkeypatch, [6_360_000, 8_390_000])          # a flat look: crf gives 6.36 Mbps, the floor is 8
-    info = spy.encode()
-    kinds = [('crf' if '-crf' in c else 'pass' + _flag(c, '-pass')) for c, _ in spy.cmds]
-    assert kinds == ['crf', 'pass1', 'pass2']
-    assert all(_flag(c, '-i') == str(tmp_path / 'render.mp4') for c, _ in spy.cmds)             # always from the same intermediate
-    assert all(cwd == str(tmp_path) for c, cwd in spy.cmds[1:])                                 # the pass log is a plain relative name
-    assert info['floorReencode'] is True and info['crfBitrate'] == 6_360_000 and info['bitrate'] == 8_390_000
-    assert info['abrBitrate'] == 8_400_000
-    assert not [n for n in os.listdir(tmp_path) if n.startswith('x264pass')]                    # stats files removed
-    log = spy.log()
-    assert 'floor re-encode: ran' in log and 'two-pass at 8.40 Mbps' in log and 'gives 8.39 Mbps' in log
-
-
-def test_the_floor_is_the_takes_own_bitrate_when_it_is_above_8_mbps(tmp_path, monkeypatch):
-    spy = _Spy(tmp_path, monkeypatch, [25_000_000, 31_400_000])
-    info = spy.encode(OUT4)                                           # a 30 Mbps take: 25 Mbps at crf is not enough
-    assert info['floorReencode'] is True and info['floorMbps'] == 30.0
-    assert _flag(spy.cmds[1][0], '-b:v') == '31500000'
+def test_encode_runs_one_crf_encode_even_when_it_is_under_the_takes_bitrate(tmp_path, monkeypatch):
+    spy = _Spy(tmp_path, monkeypatch, [6_360_000])                    # a flat look: 6.36 Mbps from a 30 Mbps take
+    info = spy.encode(OUT4)
+    assert len(spy.cmds) == 1 and _flag(spy.cmds[0][0], '-crf') == '14' and "-pass" not in spy.cmds[0][0]
+    assert info == {'crf': 14, 'bitrate': 6_360_000}
+    assert 'crf 14 slow gives 6.36 Mbps' in spy.log() and '(the take: 30.00 Mbps)' in spy.log()
 
 
 def test_a_failed_encode_keeps_the_intermediate_and_the_log_says_where(tmp_path, monkeypatch):
@@ -249,14 +207,6 @@ def test_a_failed_encode_keeps_the_intermediate_and_the_log_says_where(tmp_path,
     assert (tmp_path / 'render.mp4').exists() and 'kept the intermediate at %s' % (tmp_path / 'render.mp4') in spy.log()
 
 
-def test_a_failed_second_pass_still_removes_the_two_pass_logs(tmp_path, monkeypatch):
-    spy = _Spy(tmp_path, monkeypatch, [6_360_000], fail_on=3)         # crf ok but under the floor, pass 1 ok, pass 2 fails
-    with pytest.raises(export.ExportError):
-        spy.encode()
-    assert len(spy.cmds) == 3
-    assert not [n for n in os.listdir(tmp_path) if n.startswith('x264pass')]
-
-
 def test_nothing_is_said_about_the_intermediate_once_it_is_gone(tmp_path, monkeypatch):
     spy = _Spy(tmp_path, monkeypatch, [])
     (tmp_path / 'render.mp4').unlink()
@@ -266,7 +216,10 @@ def test_nothing_is_said_about_the_intermediate_once_it_is_gone(tmp_path, monkey
 
 def test_out_and_files_come_from_the_take_with_fallbacks():
     take = json.loads((SAMPLE / 'take.json').read_text(encoding='utf-8'))
-    assert export.out_spec(take) == {'w': 1080, 'h': 1920, 'fps': 24.0, 'fpsStr': '24', 'bitrate': take['out']['bitrate']}
+    assert export.out_spec(take) == {'w': 1080, 'h': 1920, 'fps': 24.0, 'fpsStr': '24', 'bitrate': take['bitrate']}
+    raised = dict(take, bitrate=5_000_000, out=dict(take['out'], bitrate=8_000_000))        # a take whose `out` was raised to 8 Mbps
+    assert export.out_spec(raised)['bitrate'] == 5_000_000                                  # the upload's own bitrate wins
+    assert export.out_spec(dict(raised, bitrate=None))['bitrate'] == 8_000_000              # `out` is only the fallback
     assert export.take_files(take) == {'person': 'person.webm', 'shadow': 'shadow.webm', 'audio': 'audio.m4a'}
     k4 = dict(take, out={'w': 2160, 'h': 3840, 'fps': 29.97, 'fpsStr': '30000/1001', 'bitrate': 40_000_000},
               files={'person': 'p.webm', 'preview': 'q.webm', 'shadow': 's.webm', 'audio': None})
@@ -274,6 +227,7 @@ def test_out_and_files_come_from_the_take_with_fallbacks():
     assert export.take_files(k4) == {'person': 'p.webm', 'shadow': 's.webm', 'audio': None}
     old = {'w': 1080, 'h': 1920, 'fps': 30, 'bitrate': 9_000_000, 'hasAudio': False}        # a take from before `out`/`files`
     assert export.out_spec(old)['fpsStr'] == '30' and export.take_files(old)['audio'] is None
+    assert export.out_spec(old)['bitrate'] == 9_000_000
 
 
 def test_renderer_bin_is_local_and_never_npx(tmp_path, monkeypatch):
@@ -422,7 +376,6 @@ def test_sample_original(server_factory, work):
     got = export.probe_output(f)
     assert (got['width'], got['height']) == (1080, 1920)
     assert got['rate'] == Fraction(24) and got['frames'] == 121
-    assert got['bitrate'] >= 8_000_000, got['bitrate']
     assert got['codec'] == 'h264'
     assert [(a['codec'], a['rate']) for a in got['audio']] == [('aac', 48000)]
     i, peak = lufs(f)
@@ -435,8 +388,8 @@ def test_sample_original(server_factory, work):
 
 @pytest.mark.slow
 def test_a_take_with_a_high_bitrate_still_exports(server_factory, work):
-    """A take recorded at about 30 Mbps: the floor is 30 Mbps and the encoder cannot reach it on a flat picture, but the
-    export is never refused over its video bitrate."""
+    """A take recorded at about 30 Mbps: the single CRF 14 encode comes out under it on a flat picture, and the export is
+    never refused over its video bitrate."""
     project = work / 'hi-bitrate-proj'
 
     def mutate(take, d):
@@ -449,15 +402,14 @@ def test_a_take_with_a_high_bitrate_still_exports(server_factory, work):
     st = run_export(srv, 'hi')
     WALL['30 Mbps export'] = round(time.time() - t0, 1)
     log = export_log(project, st)
-    assert 'floor 30.00 Mbps' in log, log[-1500:]                      # the take's bitrate really raised the floor
-    assert 'floor re-encode: ran' in log, log[-1500:]
+    assert '(the take: 30.00 Mbps)' in log, log[-1500:]                # the log says the take's bitrate beside the result
     assert st['stage'] == 'done', (st, log[-1500:])
-    assert 'CHECK FAILED' not in log and 'wanted at least' not in log
+    assert 'CHECK FAILED' not in log and "-pass" not in log
     assert os.path.exists(st['path'])
     got = export.probe_output(st['path'])
     assert got['frames'] == 121 and got['rate'] == Fraction(24) and got['codec'] == 'h264'
-    if got['bitrate'] < 30e6:                                           # under the floor: the number reaches the log, as a note
-        assert 'note: video bitrate' in log and 'is under the 30.00 Mbps floor' in log
+    if got['bitrate'] < 30e6:                                           # under the take's: the numbers reach the log, as a note
+        assert 'note: video bitrate' in log and "is under the take's 30.00 Mbps" in log
 
 
 @pytest.fixture(scope='module')
@@ -491,10 +443,9 @@ def test_tier2(server_factory, work, tier2_take):
     log = export_log(tier2_take, st)
     assert st['stage'] == 'done', (st, log[-1500:])
     assert '--resolution portrait-4k' in log and '--crf 8' in log and '--video-bitrate' not in log
-    assert 'floor re-encode:' in log and 'encode: crf 14 slow' in log
+    assert 'encode: crf 14 slow' in log and "-pass" not in log
     got = export.probe_output(st['path'])
     assert (got['width'], got['height']) == (2160, 3840) and got['frames'] == 121 and got['rate'] == Fraction(24)
-    assert got['bitrate'] >= 0.98 * 20e6, got['bitrate']
     i, _ = lufs(st['path'])
     assert abs(i - -14.0) <= 1.0, i
     scores, full = [], []
@@ -599,8 +550,8 @@ def test_a_shortfall_ends_in_error_and_the_numbers_go_to_the_log(tmp_path, serve
     assert kept.exists() and 'kept the intermediate at %s' % kept in log          # one line for every failure that leaves it
 
 
-def test_a_file_under_the_floor_ends_done_with_one_note_in_the_log(tmp_path, server_factory):
-    """The take's floor is more than raw 1080x1920 video holds, so the finished file is under it on any machine: the export
+def test_a_file_under_the_takes_bitrate_ends_done_with_one_note_in_the_log(tmp_path, server_factory):
+    """The take's bitrate is more than raw 1080x1920 video holds, so the finished file is under it on any machine: the export
     still ends done, and the log carries one note with both numbers, never a failure."""
     clip = _clip(tmp_path / 'any.mp4', n=121)
     root = fake_renderer(tmp_path / 'fake-renderer', clip)
@@ -615,9 +566,9 @@ def test_a_file_under_the_floor_ends_done_with_one_note_in_the_log(tmp_path, ser
     st = run_export(srv, 'heavy', events=[], wait=300)
     log = export_log(project, st)
     assert st['stage'] == 'done', (st, log[-1500:])
-    assert 'floor re-encode: ran' in log and 'CHECK FAILED' not in log and 'wanted at least' not in log
+    assert 'CHECK FAILED' not in log and "-pass" not in log
     notes = [line for line in log.splitlines() if '  note: ' in line]
-    assert len(notes) == 1 and 'is under the 800.00 Mbps floor' in notes[0] and 'the file is kept' in notes[0], log[-1500:]
+    assert len(notes) == 1 and "is under the take's 800.00 Mbps" in notes[0] and 'never stops an export' in notes[0], log[-1500:]
 
 
 def test_render_command_line_tier1_and_tier2(tmp_path, server_factory):
@@ -698,8 +649,6 @@ def stale_path(tmp_path, monkeypatch):
 def test_the_ffmpeg_commands_use_the_recorded_paths(stale_path):
     assert export._x264_head('in.mp4')[0] == stale_path['ffmpeg']
     assert export.encode_cmd('in.mp4', 'out.mp4')[0] == stale_path['ffmpeg']
-    first, second = export.abr_cmds('in.mp4', 'out.mp4', 8_000_000, 'p')
-    assert first[0] == stale_path['ffmpeg'] and second[0] == stale_path['ffmpeg']
 
 
 def test_every_export_helper_runs_ffmpeg_and_ffprobe_from_config_json_when_path_has_neither(tmp_path, stale_path, monkeypatch):
@@ -861,12 +810,12 @@ def test_on_windows_the_render_keeps_the_tree_kill(tmp_path, monkeypatch):
     assert calls == [['taskkill', '/F', '/T', '/PID', '77']]
 
 
-# -- M14: the bitrate after an encode pass comes from the packets, not a full decode ----------------------------------
+# -- M14: the bitrate after the encode comes from the packets, not a full decode ----------------------------------
 def test_encode_probes_the_bitrate_from_packets_not_with_a_full_decode(tmp_path, monkeypatch):
-    spy = _Spy(tmp_path, monkeypatch, [6_360_000, 8_390_000])
+    spy = _Spy(tmp_path, monkeypatch, [6_360_000])
     monkeypatch.setattr(export, 'probe_output', lambda path: pytest.fail('a full decode inside _encode'))
     info = spy.encode()
-    assert info['bitrate'] == 8_390_000
+    assert info['bitrate'] == 6_360_000
 
 
 def test_probe_bitrate_agrees_with_the_full_probe_and_does_not_decode(tmp_path, monkeypatch):
@@ -890,7 +839,7 @@ def test_a_passed_export_keeps_only_what_is_needed(tmp_path, server_factory):
     folder = Path(project) / 'floored' / 'exports' / st['id']
     names = sorted(os.listdir(folder))
     assert 'video.mp4' not in names and 'premix.wav' not in names and 'sfx.wav' not in names
-    assert 'assets' not in names and 'render.mp4' not in names and not [n for n in names if n.startswith('x264pass')]
+    assert 'assets' not in names and 'render.mp4' not in names
     for keep in ('index.html', 'job.json', 'status.json', 'export.log', os.path.basename(st['path'])):
         assert keep in names, names
     assert os.path.isfile(st['path'])
