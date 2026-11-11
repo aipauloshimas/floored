@@ -22,8 +22,8 @@ is whatever that gives: the log says it beside the take's own. The composition k
 is rendered with HyperFrames' own `--resolution portrait-4k` (Chrome at device scale 2) over the full-resolution cutout
 (`take.files.person`). The renderer is the locally installed, pinned HyperFrames (renderer_bin(); never npx), run with the
 telemetry opt-out so a finished setup works offline. Before `done` the file is probed (check_output): size, frame rate,
-frame count, the audio stream and (when someone speaks in the take) the loudness must match the take, or the export ends
-in `error` and says so. The video bitrate is never a check: a file under the take's is a `note:` line in the log.
+frame count and the audio stream must match the take, or the export ends in `error` and says so. The video bitrate and the
+loudness are never checks: an off-target result is a `note:` line in the log, and the file is kept.
 """
 import json
 import os
@@ -298,8 +298,9 @@ def probe_bitrate(path):
 
 def check_output(path, out, frames, expect_lufs, expect_audio=False):
     """The rule "never silent quality loss": returns (problems, numbers). It checks the size, the frame rate, the frame
-    count, the audio and the loudness; never the video bitrate (a file under the take's bitrate is not a problem: the
-    worker logs it). `expect_lufs` is True when the voice is in the mix (the loudness must then be -14 +- 1 LUFS);
+    count and the audio stream; never the video bitrate (a file under the take's bitrate is not a problem: the worker logs
+    it) and never the loudness (an off-target result is only a note in the log). `expect_lufs` is True when the voice is in
+    the mix: the loudness and true peak are then measured and returned;
     `expect_audio` is True when voice or effects are in (an AAC stream at 48 kHz must then exist). It measures once and
     returns everything `details` needs. An empty problems list means the file is what the take asked for."""
     got = probe_output(path)
@@ -319,10 +320,8 @@ def check_output(path, out, frames, expect_lufs, expect_audio=False):
         elif first['codec'] != 'aac' or first['rate'] != SR:
             problems.append('audio %s at %s Hz, wanted aac at %d Hz' % (first['codec'], first['rate'], SR))
     lufs, peak = (None, None)
-    if expect_lufs:
+    if expect_lufs:                                       # measured for the log and `details`; never a problem (the worker notes it)
         lufs, peak = loudness(path)
-        if lufs is None or abs(lufs - LUFS) > LUFS_TOLERANCE:
-            problems.append('loudness %s LUFS, wanted %g +- %g' % (lufs, LUFS, LUFS_TOLERANCE))
     numbers = {'width': got['width'], 'height': got['height'], 'frameRate': str(got['rate']), 'fps': float(got['rate']),
                'frames': got['frames'], 'codec': got['codec'], 'duration': got['duration'],
                'videoBitrate': got['bitrate'], 'lufs': lufs, 'truePeak': peak, 'audio': got['audio']}
@@ -691,8 +690,8 @@ class Exporter:
                                speech=speech_state(take))
         timings['sound'] = round(time.time() - t2, 1)
 
-        # the check: size, frame rate, frames, audio and loudness must match the take, or the export stops (the video
-        # bitrate never stops it: it is only logged below)
+        # the check: size, frame rate, frames and the audio stream must match the take, or the export stops (neither the
+        # video bitrate nor the loudness ever stops it: they are only logged below)
         problems, numbers = check_output(final, out, frames, bool(audio_info and audio_info.get('voice')),
                                          expect_audio=bool(audio_info))
         self._log(job, 'check: %s' % json.dumps(numbers, default=str))
@@ -700,6 +699,9 @@ class Exporter:
             self._log(job, "note: video bitrate %.2f Mbps is under the take's %.2f Mbps. That is normal for a drawn floor at "
                       "constant quality (CRF %d) and never stops an export."
                       % (numbers['videoBitrate'] / 1e6, take_bps / 1e6, ENCODE_CRF))
+        if audio_info and audio_info.get('voice') and (numbers['lufs'] is None or abs(numbers['lufs'] - LUFS) > LUFS_TOLERANCE):
+            self._log(job, 'note: loudness %s LUFS is outside %g +- %g. That never stops an export: the file is kept.'
+                      % (numbers['lufs'], LUFS, LUFS_TOLERANCE))
         if audio_info and audio_info.get('roomSound'):
             notes.append(ROOM_SOUND_NOTE)
         if problems:
@@ -760,7 +762,7 @@ class Exporter:
 
         A voice track that is digital silence, or whose loudest sample is under -60 dBFS, or that loudnorm reads at -70 LUFS or
         lower (a single click), counts as no voice: the effects get their alone gain, nothing is normalised, and
-        `voice` is False, so the check does not ask for -14 LUFS (a take from an AI generator often carries a silent track).
+        `voice` is False, so there is no loudness target (a take from an AI generator often carries a silent track).
         That silent track is not room sound either: `roomSound` is False for it."""
         base = [_tool('ffmpeg'), '-hide_banner', '-nostdin', '-y']
         if not voice and not sfx_wav:

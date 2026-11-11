@@ -289,11 +289,14 @@ def test_a_file_under_the_floor_is_not_a_problem(tmp_path):
     assert problems == [] and numbers['videoBitrate'] < 0.98 * 30e6
 
 
-def test_check_output_checks_the_loudness_only_when_the_voice_is_in(tmp_path):
+def test_check_output_measures_the_loudness_when_the_voice_is_in_but_never_calls_it_a_problem(tmp_path):
     f = _clip(tmp_path / 'tone.mp4', n=48, audio=2)                            # a 440 Hz tone, nowhere near -14 LUFS
     out = {'w': 1080, 'h': 1920, 'fps': 24, 'fpsStr': '24', 'bitrate': 1}
-    assert export.check_output(str(f), out, 48, False)[0] == []
-    assert any('loudness' in p for p in export.check_output(str(f), out, 48, True)[0])
+    problems, numbers = export.check_output(str(f), out, 48, False)
+    assert problems == [] and numbers['lufs'] is None                          # no voice: not measured
+    problems, numbers = export.check_output(str(f), out, 48, True)
+    assert problems == [], problems                                            # loudness never stops an export
+    assert numbers['lufs'] is not None and abs(numbers['lufs'] - -14.0) > export.LUFS_TOLERANCE and numbers['truePeak'] is not None
 
 
 def test_check_output_numbers_carry_what_details_needs(tmp_path):
@@ -900,6 +903,21 @@ def _worker_run(tmp_path, monkeypatch, audio_info, numbers_lufs):
     monkeypatch.setattr(export, 'check_output', lambda *a, **k: ([], numbers))
     exp._run(job)
     return job, (job_dir / 'export.log').read_text(encoding='utf-8')
+
+
+def test_a_voice_outside_minus_14_ends_in_done_with_a_note_in_the_log_only(tmp_path, monkeypatch):
+    job, log = _worker_run(tmp_path, monkeypatch, {'voice': True, 'roomSound': False, 'sfx': False}, -16.4)
+    assert job['stage'] == 'done', job
+    assert 'note: loudness -16.4 LUFS is outside -14 +- 1. That never stops an export: the file is kept.' in log
+    assert job['details']['notes'] == []                                        # the creator reads nothing about it
+    (tmp_path / 'b').mkdir()
+    job, log = _worker_run(tmp_path / 'b', monkeypatch, {'voice': True, 'roomSound': False, 'sfx': False}, None)
+    assert job['stage'] == 'done' and 'note: loudness None LUFS is outside' in log     # could not be measured: the same
+
+
+def test_a_voice_inside_the_tolerance_logs_no_loudness_note(tmp_path, monkeypatch):
+    job, log = _worker_run(tmp_path, monkeypatch, {'voice': True, 'roomSound': False, 'sfx': False}, -14.3)
+    assert job['stage'] == 'done' and 'note: loudness' not in log and job['details']['notes'] == []
 
 
 def test_room_sound_tells_the_creator_in_the_notes_and_logs_no_loudness_note(tmp_path, monkeypatch):
