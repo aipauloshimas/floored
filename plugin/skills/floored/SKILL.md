@@ -63,8 +63,9 @@ takes and exports go in `WS/floored/`. `floored.py` hands over to its own privat
    wait for an answer. Say in one line what you are installing, with the total size (`downloadMb` plus the speech
    reader's `mb`) and the video maker's minutes ("Setting up floored now: 671 MB, about 13 minutes, most of it the
    video maker"), and that the last click stays theirs: when they are back, they pick the look and press **Export**.
-   Then install everything the report lists as missing, in the order above: the manual items, the `auto` items and
-   both optional ones. A plain request for an intro is not a blanket go: then ask the one question.
+   Then install everything the report lists as missing, in the order above: the manual command if there is one, the
+   `auto` items and both optional ones. The blanket go covers floored's own Python as well: on `NO_PYTHON` run the
+   finder with `--install` without asking. A plain request for an intro is not a blanket go: then ask.
 3. **No clip yet?** Show them [how to film it](reference/filming.md) in your own words (phone up high and a little
    in front, tilted down, not straight down, whole body, one spot, 3 to 8 s), then start the studio (step 4, no
    `add`). Its home page has a sample take: point at **Try the sample take**, so they can try the looks now and film
@@ -113,8 +114,8 @@ don't ask the creator for words, style or camera before the take is processing: 
   already renders at their take's size and frame rate.
 - **Never upload or send the video anywhere.** Nothing leaves the computer.
 - **Never edit `take.json` by hand.** Hooks go in through `suggest`; everything else is the studio's.
-- **Never install anything the creator didn't accept** in the one setup question. A blanket go (step 2) accepts
-  every item.
+- **Never install anything the creator didn't accept** (the Python question, then the one setup question). A
+  blanket go (step 2) accepts every item.
 - **Stop only what you started.** `APP stop --workspace WS` stops this project's studio; never kill processes by name.
 
 | Excuse | Reality |

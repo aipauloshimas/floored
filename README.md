@@ -16,9 +16,12 @@ on your computer.
   real Mac yet, so please report anything that looks off there.
 - A computer with no special graphics card. It runs on the processor by default. The graphics card is used only if
   the setup's quality check shows the result is identical.
-- **Python 3.10 or newer, Node.js 22 or newer, ffmpeg, and Chrome or Edge** (any Chromium browser works). If one is missing,
-  Claude tells you the command that installs it.
-- About 1 GB of free disk space for the one-time setup. Setup tells you the sizes before it downloads anything.
+- **Nothing to install by hand.** floored uses the Python (3.10 or newer), Node.js (22 or newer) and ffmpeg on your
+  computer when they are there. When one is missing, setup downloads floored's own copy into floored's own folder:
+  no installer, no password, and nothing else on your computer changes. The studio opens in the Claude desktop app's
+  browser pane, or in Chrome or Edge (any Chromium browser works).
+- About 2 GB of free disk space for the one-time setup on a computer that starts with nothing (about 1 GB when
+  Python, Node.js and ffmpeg are already there). Setup tells you the sizes before it downloads anything.
 - A clip: 9:16, one person, still camera, 3 to 8 seconds (up to 10 works with a warning).
 
 The Python packages the studio needs are pinned in `plugin/skills/floored/app/requirements.txt` (and
@@ -26,14 +29,22 @@ The Python packages the studio needs are pinned in `plugin/skills/floored/app/re
 
 ## Install
 
-In a terminal:
+**In the Claude desktop app** (no terminal needed), open a Code session in any folder and send this message:
+
+> Install the floored plugin for me. Run `claude plugin marketplace add aipauloshimas/floored`, then
+> `claude plugin install floored@floored`. If the `claude` command is not found, run them with the Claude Code
+> program this session itself runs on (the `claude` process that started your shell).
+
+Claude asks before it runs each command. When both are done, start a new session: floored is there.
+
+**In a terminal** (the Claude Code CLI):
 
 ```
 claude plugin marketplace add aipauloshimas/floored
 claude plugin install floored@floored
 ```
 
-Or ask Claude Code to install it from this repository's URL.
+Then start a new Claude Code session.
 
 ## Update
 
@@ -44,13 +55,14 @@ claude plugin marketplace update floored
 claude plugin update floored@floored
 ```
 
-Then start a new Claude Code session. Or ask Claude Code to update the floored plugin.
+Then start a new Claude Code session. In the desktop app, ask Claude instead: "Update the floored plugin for me",
+and it runs the same two commands.
 
 ## First run
 
 Ask Claude for a floor text intro: "make me a floor text intro", or drop your clip into the chat and say so. The first
-time, Claude checks your setup and asks once before it installs or downloads anything (the cutout model is about
-15 MB, the video renderer is bigger). After that it starts the studio in your browser, sends your clip in, and waits
+time, Claude checks your setup and asks before it installs or downloads anything, with the size of each item (the
+cutout model is about 15 MB, the video renderer is the big one). After that it starts the studio in your browser, sends your clip in, and waits
 while it is processed. The studio shows the time left.
 
 Then you pick a look, edit the words if you like (Claude suggests a few hooks), and press **Export** yourself. Claude
@@ -88,7 +100,7 @@ tools and models at setup; after that, floored works offline.
 
 ## Uninstall
 
-In a terminal:
+In a terminal (or ask Claude to run them, as in Install):
 
 ```
 claude plugin uninstall floored
@@ -100,7 +112,7 @@ them:
 
 | Folder | What it holds | Size |
 |---|---|---|
-| `~/.floored` | the private Python environment, the video renderer, your preferences (and, on Windows with a long user path, the renderer's browser cache `hf-cache`) | the bulk of the setup |
+| `~/.floored` | the private Python environment, the video renderer, your preferences, floored's own Python, Node.js and ffmpeg when setup downloaded them (in `tools/`), and, on Windows with a long user path, the renderer's browser cache `hf-cache` | the bulk of the setup |
 | `~/.cache/hyperframes` | the headless Chrome the renderer downloaded (it is not bundled) | about 282 MB |
 | `~/.hyperframes` | the renderer's small config and install-state files | small |
 | `~/.cache/rvm` | the cutout model | about 15 MB. Other tools may share these weights, so check before deleting |

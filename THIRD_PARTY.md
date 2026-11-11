@@ -43,6 +43,9 @@ Downloaded or installed on your computer by the setup step, from their official 
 | onnxruntime (DirectML build on Windows) | MIT |
 | numpy | BSD-3-Clause |
 | faster-whisper and the Whisper weights (optional) | MIT |
+| Python 3.12 (the python-build-standalone build of CPython), only when the computer has none | PSF-2.0, with the licences of the libraries it carries |
+| Node.js 22, only when the computer has none | MIT, with the licences of the libraries it carries |
+| ffmpeg and ffprobe 9.0.2 (the gyan.dev build on Windows, the martin-riedl.de build on macOS), only when the computer has none or an incomplete one | GPL-3.0-or-later, as built by their publishers |
 
 ## Development only
 
