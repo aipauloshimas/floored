@@ -8,6 +8,16 @@ Show this to the creator before they record, or when a take has warnings. Plain 
 - **3 to 8 seconds.** Say your line to the lens.
 - **Good light, plain floor.** Even light and a floor with no pattern look best.
 
+## Good take, bad take
+
+- **Film it like this.** Your whole body stands on the words. Legs and shoes in the shot, room on every side.
+- **Not from straight above.** Your legs and feet go missing. From straight above they hide under your body. Film from further back.
+- **Too close.** Part of you leaves the frame, and it ends in a straight cut. Leave room on every side.
+- **Walking.** Your feet move, so the words don't stay lined up with you. Stand on one spot.
+- **Two people.** floored works best with just you.
+
+The studio's home screen shows a picture of each.
+
 ## Good to know
 
 - The clip should be tall (9:16) and filmed with the phone upright. Wide videos get cropped.

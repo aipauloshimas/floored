@@ -132,6 +132,20 @@ def test_repo_under_30_mb():
     assert total < MAX_BYTES, 'tracked files are %.1f MB, the limit is 30 MB' % (total / 1048576)
 
 
+FILMING_IMG = APP / 'web' / 'img' / 'filming'
+FILMING_FILES = {'good-take.webp', 'good-intro.webp', 'above-take.webp', 'above-intro.webp', 'too-close.webp',
+                 'walking.webp', 'two-people.webp', 'where-the-phone-goes.svg'}
+
+
+def test_filming_pictures_are_light():
+    """The studio's pictures of good and bad takes: exactly these files, 60 KB each at most, 350 KB together."""
+    files = {p.name: p.stat().st_size for p in FILMING_IMG.iterdir() if p.is_file()}
+    assert set(files) == FILMING_FILES, 'unexpected files in %s: %s' % (FILMING_IMG, sorted(set(files) ^ FILMING_FILES))
+    too_big = {n: s for n, s in files.items() if s > 60 * 1024}
+    assert not too_big, 'over 60 KB: %s' % too_big
+    assert sum(files.values()) <= 350 * 1024, 'together %d bytes, the limit is 350 KB' % sum(files.values())
+
+
 def test_bench_output_is_ignored():
     gi = (REPO / '.gitignore').read_text(encoding='utf-8')
     assert 'dev/bench/*/' in gi

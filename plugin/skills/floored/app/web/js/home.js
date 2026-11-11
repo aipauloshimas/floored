@@ -3,6 +3,36 @@ import { api, capturePoster, posterImg, uploadFile } from './api.js';
 import { LOOKS, PALETTES, cachedPrefs, ssSet } from './store.js';
 import { FILMING } from './copy.js';
 
+/* the pictures of good and bad takes live in img/filming/; size attributes keep the page from jumping as they load */
+function figure(file, w, hgt, alt, cls) {
+  return h('img', { class: cls, src: 'img/filming/' + file, width: String(w), height: String(hgt), alt: alt, loading: 'lazy', decoding: 'async' });
+}
+function shot(file, alt, pill) {
+  return h('span', { class: 'ex-shot' }, figure(file + '.webp', 540, 960, alt), h('span', { class: 'ex-pill', text: pill }));
+}
+function badge(good, label) {
+  return h('span', { class: 'ex-badge ' + (good ? 'is-good' : 'is-bad') }, ico(good ? 'check' : 'x', null, 16), label);
+}
+function examplesSection() {
+  return h('section', { class: 'home-examples', 'aria-labelledby': 'examples-title' },
+    h('h2', { id: 'examples-title', class: 'section-title', text: FILMING.examplesHeading }),
+    h('div', { class: 'ex-pairs' }, FILMING.pairs.map(function (p) {
+      return h('article', { class: 'ex-pair ' + (p.good ? 'is-good' : 'is-bad') },
+        badge(p.good, p.label),
+        h('div', { class: 'ex-shots' },
+          shot(p.take, p.takeAlt, 'Your take'),
+          h('span', { class: 'ex-chev', 'aria-hidden': 'true' }, ico('chevron', null, 18)),
+          shot(p.intro, p.introAlt, 'The intro')),
+        h('h3', { class: 'ex-title', text: p.title }),
+        h('p', { class: 'ex-text', text: p.text }));
+    })),
+    h('div', { class: 'ex-mistakes' }, FILMING.mistakes.map(function (m) {
+      return h('article', { class: 'ex-mistake' },
+        h('span', { class: 'ex-mshot' }, figure(m.img + '.webp', 540, 960, m.alt)),
+        h('div', { class: 'ex-mbody' }, badge(false, m.label), h('p', { class: 'ex-text', text: m.text })));
+    })));
+}
+
 export function homeScreen() {
   var disposed = false, busy = false;
   var input = h('input', { type: 'file', accept: 'video/mp4,video/quicktime,.mp4,.mov,.m4v', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true' });
@@ -92,10 +122,12 @@ export function homeScreen() {
               h('span', { class: 'link-text' }, 'Try the sample take', ico('arrow', 'inline', 16))))),
         h('aside', { class: 'how-card', 'aria-labelledby': 'how-title' },
           h('h2', { id: 'how-title', class: 'card-title', text: FILMING.heading }),
+          figure('where-the-phone-goes.svg', 400, 286, FILMING.diagramAlt, 'how-figure'),
           h('ul', { class: 'how-list' }, FILMING.rules.map(function (r) {
             return h('li', null, h('span', { class: 'how-ico' }, ico(r.icon)), h('div', null, h('strong', { text: r.title }), h('p', { text: r.text })));
           })))),
-      takesBox));
+      takesBox,
+      examplesSection()));
 
   api('/api/takes').then(function (list) {
     if (disposed || !Array.isArray(list)) return;

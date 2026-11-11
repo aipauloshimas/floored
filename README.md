@@ -69,6 +69,18 @@ Short version: phone up high and a little in front, tilted down (not straight do
 3 to 8 seconds. The full guide, with the details, is in
 [`plugin/skills/floored/reference/filming.md`](plugin/skills/floored/reference/filming.md).
 
+<p align="center"><img src="plugin/skills/floored/app/web/img/filming/where-the-phone-goes.svg" width="420" alt="Side view: the phone about 3 m up and 2 m in front of you, tilted down at about 45–50°, not straight above you."></p>
+
+<table>
+<tr><th align="left">Film it like this</th><th align="left">Not from straight above</th></tr>
+<tr><td valign="top"><img src="plugin/skills/floored/app/web/img/filming/good-take.webp" width="185" alt="A take filmed from about 45 degrees: the whole body is in the shot, legs and shoes too."> <img src="plugin/skills/floored/app/web/img/filming/good-intro.webp" width="185" alt="The intro made from that take: the words lie on the floor around the whole body."><br><b>Your whole body stands on the words.</b><br>Legs and shoes in the shot, room on every side.</td><td valign="top"><img src="plugin/skills/floored/app/web/img/filming/above-take.webp" width="185" alt="A take filmed from straight above: a large head and chest, the legs hidden below."> <img src="plugin/skills/floored/app/web/img/filming/above-intro.webp" width="185" alt="The intro made from that take: the legs and feet are hardly visible."><br><b>Your legs and feet go missing.</b><br>From straight above they hide under your body. Film from further back.</td></tr>
+</table>
+
+<table>
+<tr><th align="left">Too close</th><th align="left">Walking</th><th align="left">Two people</th></tr>
+<tr><td valign="top"><img src="plugin/skills/floored/app/web/img/filming/too-close.webp" width="180" alt="A take filmed too close: the person fills the frame and their hands run off the edge."><br>Part of you leaves the frame, and it ends in a straight cut. Leave room on every side.</td><td valign="top"><img src="plugin/skills/floored/app/web/img/filming/walking.webp" width="180" alt="A take of a person walking, seen from above and moving off to one side of the frame."><br>Your feet move, so the words don't stay lined up with you. Stand on one spot.</td><td valign="top"><img src="plugin/skills/floored/app/web/img/filming/two-people.webp" width="180" alt="A take with two people standing side by side."><br>floored works best with just you.</td></tr>
+</table>
+
 ## Privacy
 
 Everything runs on your computer. Your video never leaves it, and Claude never uploads it. The only downloads are the

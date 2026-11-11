@@ -68,14 +68,58 @@ test.describe('copy', () => {
       await expect(how).toContainText(r.text);
     }
     // the guide is about where the camera goes and how to stand, nothing else
+    // the pictures: every label, title and text is in filming.md word for word
+    const bullets = [...guide.pairs.map((p) => [p.label, p.title, p.text]), ...guide.mistakes.map((m) => [m.label, '', m.text])];
+    expect(md).toContain('## Good take, bad take');
+    for (const [label, title, text] of bullets) {
+      expect(md, 'filming.md has the bullet for "' + label + '"').toContain('- **' + label + '.** ' + (title ? title + ' ' : '') + text);
+    }
+    expect(md).toContain("The studio's home screen shows a picture of each.");
+    expect(md.indexOf('## Good take, bad take')).toBeGreaterThan(md.indexOf(guide.rules[4].text));
+    expect(md.indexOf('## Good take, bad take')).toBeLessThan(md.indexOf('## Good to know'));
     expect(guide.ai).toBeUndefined();
     expect(md).not.toMatch(/\bAI\b/);
     await expect(how).not.toContainText(/\bAI\b/);
+    // no word of the guide, including the picture descriptions and file names, mentions AI
+    const NOAI = /\bAI\b|artificial|generated/i;
+    expect(JSON.stringify(guide)).not.toMatch(NOAI);
+    const alts = await page.locator('.how-card img, .home-examples img').evaluateAll((l) => l.map((i) => i.alt + ' ' + i.getAttribute('src')));
+    expect(alts.length).toBe(8);
+    for (const a of alts) expect(a).not.toMatch(NOAI);
+    await expect(page.locator('.home-examples')).not.toContainText(/\bAI\b/);
     // the numbers the lead fixed
     const all = guide.rules.map((r) => r.title + ' ' + r.text).join(' ');
     for (const n of ['3 m up', '45–50°', '1×', '20%', '3 to 8 seconds']) {
       expect(all, n).toContain(n);
       expect(md, n).toContain(n);
+    }
+  });
+
+  test('the home screen shows the drawing and seven pictures that all load, with no sideways scroll', async ({ page }) => {
+    for (const v of VIEWPORTS) {
+      await page.setViewportSize({ width: v.w, height: v.h });
+      await page.goto('/');
+      await expect(page.getByRole('heading', { name: 'Good take, bad take' })).toBeVisible();
+      const imgs = page.locator('.how-card img.how-figure, .home-examples img');
+      await expect(imgs).toHaveCount(8);
+      const count = await imgs.count();
+      for (let i = 0; i < count; i++) {
+        const img = imgs.nth(i);
+        await img.scrollIntoViewIfNeeded();
+        expect((await img.getAttribute('alt')) || '', 'picture ' + i + ' has an alt at ' + v.w).not.toBe('');
+        await expect.poll(() => img.evaluate((el) => el.complete && el.naturalWidth), { message: 'picture ' + i + ' loads at ' + v.w }).toBeGreaterThan(0);
+        const box = await img.boundingBox();
+        expect(box.x, 'picture ' + i + ' starts on screen at ' + v.w).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, 'picture ' + i + ' ends on screen at ' + v.w).toBeLessThanOrEqual(v.w + 0.5);
+      }
+      expect(await noSideScroll(page), 'no sideways scroll at ' + v.w).toBeLessThanOrEqual(0);
+      // the examples come after the takes box, so a returning creator still sees "Your takes" first
+      const order = await page.evaluate(() => [...document.querySelector('.home-main').children].map((c) => c.className));
+      expect(order[order.length - 1]).toBe('home-examples');
+      if (v.w <= 680) {
+        const tile = await page.locator('.ex-shot').first().boundingBox();
+        expect(tile.width, 'a still is at most about 220 px wide at ' + v.w).toBeLessThanOrEqual(230);
+      }
     }
   });
 
@@ -378,6 +422,16 @@ test('screenshots for the taste pass', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.how-card')).toBeVisible();
   await shot('home-1440x900');
+  for (const w of [1440, 680, 390]) {                                  // the whole home page: the pictures of good and bad takes sit under the fold
+    await page.setViewportSize({ width: w, height: 900 });
+    await page.goto('/');
+    const imgs = page.locator('.home-examples img');
+    for (let i = 0; i < await imgs.count(); i++) await imgs.nth(i).scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0));
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: path.join(dir, 'home-full-' + w + '.png'), fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await mockTake(page, 'mock-shot', { warnings: warn }, cutting({ eta: 190, etaGuess: false }));
   await page.goto('/#/processing/mock-shot');
   await expect(page.locator('.step[data-state="active"]')).toContainText('About 4 min left');

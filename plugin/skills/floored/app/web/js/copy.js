@@ -16,6 +16,32 @@ export var FILMING = {
       text: 'Say your line to the lens.' },
     { icon: 'sun', title: 'Good light, plain floor',
       text: 'Even light and a floor with no pattern look best.' }
+  ],
+  diagramAlt: 'Side view: the phone about 3 m up and 2 m in front of you, tilted down at about 45–50°, not straight above you.',
+  examplesHeading: 'Good take, bad take',
+  /* two takes, each with the intro it gives; "take" and "intro" are file names in img/filming/ */
+  pairs: [
+    { good: true, label: 'Film it like this', take: 'good-take', intro: 'good-intro',
+      title: 'Your whole body stands on the words.',
+      text: 'Legs and shoes in the shot, room on every side.',
+      takeAlt: 'A take filmed from about 45 degrees: the whole body is in the shot, legs and shoes too.',
+      introAlt: 'The intro made from that take: the words lie on the floor around the whole body.' },
+    { good: false, label: 'Not from straight above', take: 'above-take', intro: 'above-intro',
+      title: 'Your legs and feet go missing.',
+      text: 'From straight above they hide under your body. Film from further back.',
+      takeAlt: 'A take filmed from straight above: a large head and chest, the legs hidden below.',
+      introAlt: 'The intro made from that take: the legs and feet are hardly visible.' }
+  ],
+  mistakes: [
+    { img: 'too-close', label: 'Too close',
+      text: 'Part of you leaves the frame, and it ends in a straight cut. Leave room on every side.',
+      alt: 'A take filmed too close: the person fills the frame and their hands run off the edge.' },
+    { img: 'walking', label: 'Walking',
+      text: "Your feet move, so the words don't stay lined up with you. Stand on one spot.",
+      alt: 'A take of a person walking, seen from above and moving off to one side of the frame.' },
+    { img: 'two-people', label: 'Two people',
+      text: 'floored works best with just you.',
+      alt: 'A take with two people standing side by side.' }
   ]
 };
 

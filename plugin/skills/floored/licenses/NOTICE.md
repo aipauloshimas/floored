@@ -36,3 +36,5 @@ downloads it to your computer from the official source, and it stays there.
     (juandelperal@htfonts.com)". The font's trademark notice ("Gochi Hand is a trademark of Juan Pablo del Peral") is also
     kept. See `THIRD_PARTY.md` for why the bundled copy is named "FT Hand".
 - **Sample take** in `app/sample/`: an AI-generated video. See `app/sample/README.md`.
+- **Filming guide pictures** in `app/web/img/filming/`: stills from AI-generated test clips; the people in them don't
+  exist. MIT, like the code.

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 34 400 286" width="400" height="286" role="img" aria-labelledby="t">
+  <title id="t">Side view: the phone about 3 m up and 2 m in front of you, tilted down at about 45–50°, not straight above you.</title>
+  <defs>
+    <radialGradient id="beam" gradientUnits="userSpaceOnUse" cx="150" cy="84" r="236">
+      <stop offset="0" stop-color="#EDEDF0" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#EDEDF0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <rect y="34" width="400" height="286" rx="14" fill="#141417"/>
+    <polygon points="150,84 384,152.5 384,270 195.4,270" fill="url(#beam)"/>
+    <line x1="24" y1="270" x2="384" y2="270" stroke="#3A3A42" stroke-width="2"/>
+    <line x1="150" y1="270" x2="150" y2="84" stroke="#5F5F68" stroke-width="2"/>
+    <line x1="150" y1="84" x2="274" y2="214" stroke="#6FD08C" stroke-width="2" stroke-dasharray="6 5"/>
+    <line x1="150" y1="84" x2="224" y2="84" stroke="#5F5F68" stroke-width="1.4" stroke-dasharray="5 5"/>
+    <path d="M194 84 A44 44 0 0 1 181.4 115.8" fill="none" stroke="#EDEDF0" stroke-width="1.8"/>
+    <text x="202" y="108" font-size="16" font-weight="600" fill="#EDEDF0" dominant-baseline="middle">45–50°</text>
+    <rect x="146" y="67" width="8" height="34" rx="1.5" fill="#EDEDF0" transform="rotate(46.3 150 84)"/>
+    <g fill="#EDEDF0" stroke="#EDEDF0" stroke-linecap="round">
+      <ellipse cx="274" cy="176" rx="11" ry="11" stroke="none"/>
+      <line x1="274" y1="195" x2="274" y2="224" stroke-width="11"/>
+      <line x1="273" y1="222" x2="267" y2="268" stroke-width="6"/>
+      <line x1="275" y1="222" x2="281" y2="268" stroke-width="6"/>
+      <line x1="271" y1="197" x2="257" y2="227" stroke-width="5"/>
+      <line x1="277" y1="197" x2="291" y2="227" stroke-width="5"/>
+    </g>
+    <rect x="257" y="80" width="34" height="8" rx="2" fill="#FF6B5E"/>
+    <line x1="274" y1="96" x2="274" y2="155" stroke="#FF6B5E" stroke-width="1.6" stroke-dasharray="5 5"/>
+    <text x="274" y="62" font-size="15" font-weight="600" fill="#FF6B5E" text-anchor="middle">Not straight above</text>
+    <g stroke="#8E8E97" stroke-width="1.4">
+      <line x1="106" y1="84" x2="106" y2="270"/><line x1="101" y1="84" x2="111" y2="84"/><line x1="101" y1="270" x2="111" y2="270"/>
+      <line x1="150" y1="288" x2="274" y2="288"/><line x1="150" y1="283" x2="150" y2="293"/><line x1="274" y1="283" x2="274" y2="293"/>
+    </g>
+    <text x="96" y="177" font-size="15" fill="#8E8E97" text-anchor="end" dominant-baseline="middle">about 3 m</text>
+    <text x="212" y="306" font-size="15" fill="#8E8E97" text-anchor="middle">about 2 m</text>
+  </g>
+</svg>

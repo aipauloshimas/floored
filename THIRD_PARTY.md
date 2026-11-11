@@ -28,6 +28,9 @@ in its name table (the family, full and PostScript names). Its copyright and tra
 `app/sample/` holds one AI-generated sample take so you can try the skill; it is under the same MIT licence as the code
 (see `app/sample/README.md`).
 
+`app/web/img/filming/` holds the filming guide's pictures: stills from AI-generated test clips, so the people in them
+don't exist. They are under the same MIT licence as the code.
+
 ## Installed at setup, never bundled
 
 Downloaded or installed on your computer by the setup step, from their official sources. See
