@@ -21,6 +21,7 @@ APP = Path(__file__).resolve().parents[2] / 'plugin' / 'skills' / 'floored' / 'a
 LOCAL_RVM = Path.home() / '.cache' / 'rvm' / 'rvm_mobilenetv3_fp32.onnx'      # read only: copied into a temp folder
 needs_local_rvm = pytest.mark.skipif(not LOCAL_RVM.is_file(), reason="the RVM weights are not at ~/.cache/rvm")
 slow = pytest.mark.slow
+WINGET_FLAGS = '--source winget --accept-source-agreements --accept-package-agreements --disable-interactivity'
 JARGON = re.compile(r'rvm|onnx|directml|coreml|mib|k0|matte|\bvenv\b|zscale|libvpx|vp9|x264', re.I)
 
 
@@ -31,6 +32,9 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv('FLOORED_RVM_MODEL', str(tmp_path / 'models' / 'rvm.onnx'))
     monkeypatch.setenv('FLOORED_RENDERER_DIR', str(tmp_path / 'renderer'))
     monkeypatch.delenv('FLOORED_RVM_URL', raising=False)
+    no_pins = tmp_path / 'no-pins.txt'
+    no_pins.write_text('# no pinned downloads here: the manual answers are tested in this file (test_doctor_tools.py has the pins)\n')
+    monkeypatch.setenv('FLOORED_TOOLS_FILE', str(no_pins))
 
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -64,7 +68,7 @@ def test_missing_ffmpeg_gives_os_command(monkeypatch):
     platform(monkeypatch, 'win32')
     item = doctor.check_ffmpeg()
     assert item['ok'] is False and item['how'] == 'manual' and item['id'] == 'ffmpeg'
-    assert item['command'] == 'winget install --id Gyan.FFmpeg -e'
+    assert item['command'] == 'winget install --id Gyan.FFmpeg -e ' + WINGET_FLAGS
     platform(monkeypatch, 'darwin')
     assert doctor.check_ffmpeg()['command'] == 'brew install ffmpeg-full'
     platform(monkeypatch, 'win32', tools=())                         # no winget: the official page
@@ -74,10 +78,10 @@ def test_missing_ffmpeg_gives_os_command(monkeypatch):
 
 
 @pytest.mark.parametrize('item_id,win,mac', [
-    ('python', 'winget install --id Python.Python.3.12 -e', 'brew install python@3.12'),
-    ('node', 'winget install --id OpenJS.NodeJS.LTS -e', 'brew install node'),
-    ('browser', 'winget install --id Google.Chrome -e', 'brew install --cask google-chrome'),
-    ('ffmpeg', 'winget install --id Gyan.FFmpeg -e', 'brew install ffmpeg-full'),
+    ('python', 'winget install --id Python.Python.3.12 -e ' + WINGET_FLAGS, 'brew install python@3.12'),
+    ('node', 'winget install --id OpenJS.NodeJS.LTS -e ' + WINGET_FLAGS, 'brew install node'),
+    ('browser', 'winget install --id Google.Chrome -e ' + WINGET_FLAGS, 'brew install --cask google-chrome'),
+    ('ffmpeg', 'winget install --id Gyan.FFmpeg -e ' + WINGET_FLAGS, 'brew install ffmpeg-full'),
 ])
 def test_install_commands(monkeypatch, item_id, win, mac):
     platform(monkeypatch, 'win32')
@@ -91,7 +95,7 @@ def test_old_python_not_ok(monkeypatch):
     platform(monkeypatch, 'win32')
     item = doctor.check_python()
     assert item['ok'] is False and item['found'] == 'Python 3.8.10' and item['need'] == 'Python 3.10 or newer'
-    assert item['command'] == 'winget install --id Python.Python.3.12 -e' and '3.8.10' in item['note']
+    assert item['command'] == 'winget install --id Python.Python.3.12 -e ' + WINGET_FLAGS and '3.8.10' in item['note']
     monkeypatch.setattr(doctor, '_pythons', lambda: iter([('/usr/bin/python3', (3, 8, 10)), ('/opt/py312', (3, 12, 1))]))
     assert doctor.check_python()['ok'] is True                      # a newer one further along is found
 
@@ -166,7 +170,7 @@ def test_node_too_old(monkeypatch):
     monkeypatch.setattr(doctor, 'find_program', lambda name: {'path': '/x/' + name, 'via': 'path', 'stale': None})
     monkeypatch.setattr(doctor, '_capture', lambda cmd, timeout=60, env=None: (0, 'v20.11.0\n'))
     item = doctor.check_node()
-    assert item['ok'] is False and item['found'] == 'Node.js 20.11.0' and 'winget install --id OpenJS.NodeJS.LTS' in item['command']
+    assert item['ok'] is False and item['found'] == 'Node.js 20.11.0' and 'winget install --id OpenJS.NodeJS.LTS -e ' + WINGET_FLAGS == item['command']
     monkeypatch.setattr(doctor, '_capture', lambda cmd, timeout=60, env=None: (0, 'v22.14.0\n'))
     assert doctor.check_node()['ok'] is True
 
@@ -393,7 +397,7 @@ def test_cli_install_of_a_manual_item_prints_the_command(capsys, monkeypatch):
     platform(monkeypatch, 'win32')
     assert doctor.main(args(install='ffmpeg')) == 2
     out = json.loads(capsys.readouterr().out)
-    assert out['ok'] is False and 'winget install --id Gyan.FFmpeg -e' in out['message'] and 'code' not in out
+    assert out['ok'] is False and 'winget install --id Gyan.FFmpeg -e ' + WINGET_FLAGS in out['message'] and 'code' not in out
     assert doctor.main(args(install='bogus')) == 2
     assert json.loads(capsys.readouterr().out)['ok'] is False
 
