@@ -18,8 +18,10 @@ SNAP = 0.06                                     # a variable rate within 6 % of 
 VFR_GAP = 0.02                                  # r_frame_rate vs avg_frame_rate further apart than 2 % = variable
 HDR_TRANSFERS = ('arib-std-b67', 'smpte2084')   # HLG, PQ (HDR10 / Dolby Vision's HDR10 base)
 
-# HDR to SDR, ahead of the scaling: linearise, tone-map (Hable) in float RGB, back to bt709 limited-range 8-bit-ready yuv.
-HDR_TO_SDR = ('zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,'
+# HDR to SDR, ahead of the scaling. SDR white is put at 203 nits (BT.2408), so a phone's HDR clip keeps the brightness
+# it has on its own screen. The tone-mapping is Mobius: linear up to 0.6, so skin and mid-tones keep their brightness
+# and only the highlights are rolled off. Chosen on a real phone HDR clip against a reference player's rendering.
+HDR_TO_SDR = ('zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:param=0.6:desat=0,'
               'zscale=t=bt709:m=bt709:r=tv,format=yuv420p')
 
 
