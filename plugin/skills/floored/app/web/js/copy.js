@@ -92,3 +92,14 @@ export function outputLine(take) {
   return sizeFps(o) + (o.fps ? ' · matches your take' : '');
 }
 export function resultLine(take) { return sizeFps(takeOutput(take)); }
+
+/* ---- when the studio's server cannot be reached (the banner, the failed save, the failed render) */
+export var REACH = {
+  banner: 'The studio stopped. Go back to Claude and say: open floored again.',
+  unreachable: 'The studio stopped.',
+  saveKept: 'Your last change is kept on this page. It is saved when the studio is back.',
+  renderTitle: 'The render did not finish',
+  renderGone: 'The studio stopped.',
+  renderGoneNote: 'Your changes are kept on this page and are saved when the studio is back. Then you can render again.',
+  renderBackNote: 'The studio is back. You can try again.'
+};

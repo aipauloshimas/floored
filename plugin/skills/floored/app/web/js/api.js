@@ -1,8 +1,11 @@
 import { h, ssGet } from './util.js';
+import { markGone, markReached } from './reach.js';
+import { REACH } from './copy.js';
 
 /* ====================================================================== api */
 export function api(path, opts) {
   return fetch(path, opts).then(function (r) {
+    markReached();                                  // any answer, whatever its status, means the server is there
     return r.text().then(function (txt) {
       var body = null;
       try { body = txt ? JSON.parse(txt) : null; } catch (e) { body = null; }
@@ -14,7 +17,10 @@ export function api(path, opts) {
       return body;
     });
   }, function () {
-    var e = new Error('Can’t reach the floored server. Is it still running?');
+    // a request this page gave up on itself (its own time limit) says nothing about the server
+    if (opts && opts.signal && opts.signal.aborted) { var a = new Error('The request took too long.'); a.aborted = true; throw a; }
+    markGone();
+    var e = new Error(REACH.unreachable);
     e.network = true;
     throw e;
   });
@@ -32,12 +38,13 @@ export function uploadFile(file, onProgress) {
     x.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
     x.upload.onprogress = function (e) { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     x.onload = function () {
+      markReached();
       var body = null;
       try { body = JSON.parse(x.responseText); } catch (e) { body = null; }
       if (x.status >= 200 && x.status < 300 && body && body.id) resolve(body);
       else reject(new Error((body && body.error) || ('The upload did not work (' + x.status + ').')));
     };
-    x.onerror = function () { reject(new Error('Can’t reach the floored server. Is it still running?')); };
+    x.onerror = function () { markGone(); reject(new Error(REACH.unreachable)); };
     x.send(file);
   });
 }
