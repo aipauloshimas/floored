@@ -2,11 +2,13 @@
 # tests:   the fast Python suite, the engine's node tests and the studio's browser tests.
 # install: a clean install through the doctor (the same --install steps SKILL.md runs), then the slow suite, which
 #          cuts real takes with RVM and exports the sample. No secrets, no Claude login, nothing paid.
+# Branches named lab/... are release candidates: the same checks run on them before main moves.
+# The setup from nothing (no Python, no Node.js, no ffmpeg) has its own workflow: first-contact.yml.
 name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'lab/**']
   pull_request:
   workflow_dispatch:
 
