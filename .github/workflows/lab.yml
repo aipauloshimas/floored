@@ -19,6 +19,7 @@ env:
 
 jobs:
   bare-windows:
+    if: ${{ false }}   # skipped while the first-contact jobs are iterated
     runs-on: windows-latest
     timeout-minutes: 40
     defaults:
@@ -189,6 +190,7 @@ jobs:
           exit 0
 
   bare-mac-arm:
+    if: ${{ false }}   # skipped while the first-contact jobs are iterated
     runs-on: macos-latest
     timeout-minutes: 40
     defaults:
@@ -215,6 +217,7 @@ jobs:
         run: sh .github/lab/mac-restore.sh
 
   bare-mac-intel:
+    if: ${{ false }}   # skipped while the first-contact jobs are iterated
     runs-on: macos-15-intel
     timeout-minutes: 40
     defaults:
@@ -235,6 +238,122 @@ jobs:
         run: sh .github/lab/mac-pins.sh
       - name: the doctor on the bare machine
         run: sh .github/lab/mac-doctor.sh
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: sh .github/lab/mac-restore.sh
+
+  first-contact-windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: strip the machine
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $away = 'C:\lab-away'
+          New-Item -ItemType Directory -Force $away | Out-Null
+          $manifest = Join-Path $away 'manifest.txt'
+          function Away($p) {
+            if (Test-Path -LiteralPath $p) {
+              $dest = Join-Path $away (($p -replace '[:\\ ()]', '_'))
+              try { Move-Item -LiteralPath $p -Destination $dest -ErrorAction Stop; "moved  $p"; "$p|$dest" | Add-Content $manifest }
+              catch { "FAILED to move $p : $($_.Exception.Message)" }
+            } else { "absent $p" }
+          }
+          $cands = @()
+          $cands += Get-ChildItem 'C:\Program Files' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|nodejs|nvm|ffmpeg|Volta)' } | ForEach-Object FullName
+          $cands += Get-ChildItem 'C:\Program Files (x86)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|nodejs|ffmpeg)' } | ForEach-Object FullName
+          $cands += "$env:LOCALAPPDATA\Programs\Python"
+          $cands += "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+          $cands += 'C:\ProgramData\chocolatey\lib\ffmpeg', 'C:\ProgramData\chocolatey\lib\nodejs', 'C:\ProgramData\chocolatey\lib\python3', 'C:\ProgramData\chocolatey\lib\python'
+          $cands += 'C:\ProgramData\nvm', 'C:\npm', "$env:APPDATA\npm", "$env:APPDATA\nvm", "$env:LOCALAPPDATA\nvm"
+          $cands += 'C:\ffmpeg', 'C:\Python3', 'C:\Python312', 'C:\Python311', 'C:\Python310'
+          foreach ($tc in @($env:RUNNER_TOOL_CACHE, $env:AGENT_TOOLSDIRECTORY, 'C:\hostedtoolcache\windows') | Where-Object { $_ } | Select-Object -Unique) {
+            "tool cache: $tc"
+            $cands += Get-ChildItem $tc -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(Python|PyPy|node)' } | ForEach-Object FullName
+          }
+          foreach ($c in ($cands | Select-Object -Unique)) { Away $c }
+          # single files left on PATH folders (py.exe launcher, chocolatey shims, ...)
+          foreach ($d in ($env:PATH -split ';' | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)) {
+            if ($d -match '\\WindowsApps') { continue }
+            Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -match '^(python[0-9.]*|pythonw|py|pyw|pip[0-9.]*|node|npm|npx|corepack|ffmpeg|ffprobe|ffplay)$' } | ForEach-Object { Away $_.FullName }
+          }
+          foreach ($f in 'C:\Windows\py.exe', 'C:\Windows\pyw.exe') { Away $f }
+          "--- manifest:"; Get-Content $manifest -ErrorAction SilentlyContinue
+          exit 0
+
+      - name: prove it is bare
+        run: |
+          $ErrorActionPreference = 'Continue'
+          "PATH:"; ($env:PATH -split ';') | ForEach-Object { "  $_" }
+          "--- Get-Command:"
+          $found = @(Get-Command python, python3, py, node, npm, ffmpeg, ffprobe -ErrorAction SilentlyContinue)
+          $found | ForEach-Object { "  $($_.Name) -> $($_.Source)" }
+          if ($found.Count -eq 0) { "RESULT nothing found" }
+          $bad = @($found | Where-Object { $_.Source -notmatch '\\WindowsApps\\' })
+          if ($found.Count -gt 0 -and $bad.Count -eq 0) { "RESULT only Microsoft Store stubs under WindowsApps" }
+          "--- python --version:"
+          $o = & python --version 2>&1 | ForEach-Object { "$_" }; "output: $o"; "exit code: $LASTEXITCODE"
+          "--- powershell: $($PSVersionTable.PSVersion)"
+          "--- browsers: chrome $(Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'), edge $(Test-Path 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')"
+          if ($bad.Count -gt 0) { "STILL FOUND: $($bad.Source -join ', ')"; exit 1 }
+          exit 0
+
+      - name: first contact (finder, own Python, the doctor's installs, a real take)
+        run: .github\labc-windows.ps1
+
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: |
+          $manifest = 'C:\lab-away\manifest.txt'
+          if (Test-Path $manifest) {
+            Get-Content $manifest | ForEach-Object { $a = $_ -split '\|'; if (Test-Path -LiteralPath $a[1]) { Move-Item -LiteralPath $a[1] -Destination $a[0] -ErrorAction SilentlyContinue } }
+          }
+          exit 0
+
+  first-contact-mac-arm:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: /bin/sh -e {0}
+    env:
+      LAB_SYS: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: strip the machine
+        run: sh .github/lab/mac-strip.sh
+      - name: prove it is bare
+        run: sh .github/lab/mac-prove.sh
+      - name: first contact (finder, own Python, the doctor's installs, a real take)
+        run: sh .github/lab/mac-fc.sh
+      - name: put the machine back
+        if: always()
+        continue-on-error: true
+        run: sh .github/lab/mac-restore.sh
+
+  first-contact-mac-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: /bin/sh -e {0}
+    env:
+      LAB_SYS: darwin-x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: strip the machine
+        run: sh .github/lab/mac-strip.sh
+      - name: prove it is bare
+        run: sh .github/lab/mac-prove.sh
+      - name: first contact (finder, own Python, the doctor's installs, a real take)
+        run: sh .github/lab/mac-fc.sh
       - name: put the machine back
         if: always()
         continue-on-error: true
