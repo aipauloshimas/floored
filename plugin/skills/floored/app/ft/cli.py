@@ -33,7 +33,8 @@ The Claude bridge (what the skill runs for the creator; each prints one JSON lin
 
 Setup (ft/doctor.py; stdlib only, so it works before the Python add-ons exist):
   floored.py doctor [--json]          what is installed and what is missing -> the report; exit 0 when nothing required is missing
-  floored.py doctor --install ITEM    venv, packages, rvm-model, renderer or words -> one JSON line {"id", "ok", "message"}
+  floored.py doctor --install ITEM    python, node, ffmpeg (floored's own copies), venv, packages, rvm-model, renderer or
+                                      words -> one JSON line {"id", "ok", "message"}
   floored.py doctor --gpu-check       compares the graphics card with the processor on 12 frames and records the result
 Every other command answers exit 5 ("floored isn't set up yet. Ask Claude to run the setup.") when the add-ons are missing.
 """
@@ -320,7 +321,7 @@ def server_error(status, body):
 
 
 def cmd_add(args):
-    video = os.path.abspath(args.video)
+    video = os.path.abspath(os.path.expanduser(args.video))     # "~/Movies/take.mp4" in quotes reaches here with its ~
     if not os.path.isfile(video):
         return fail("can't find the video: %s" % video, 2)
     if os.path.splitext(video)[1].lower() not in pipeline.VIDEO_EXTS:       # the server refuses these before reading the body,
@@ -368,9 +369,12 @@ def cmd_suggest(args):
         else:
             with open(args.file, 'rb') as f:
                 raw = f.read()
-        data = json.loads(raw.decode('utf-8-sig'))
+        utf16 = raw[:2] in (b'\xff\xfe', b'\xfe\xff')            # what Windows PowerShell's `>` and Out-File write
+        data = json.loads(raw.decode('utf-16' if utf16 else 'utf-8-sig'))
     except OSError as e:
         return fail("can't read %s (%s)." % (args.file, e.strerror or e), 2)
+    except UnicodeDecodeError:
+        return fail("%s is not UTF-8 text. Write it with your file-writing tool, not a shell redirect." % args.file, 2)
     except ValueError as e:
         return fail('%s is not valid JSON (%s).' % (args.file, e), 2)
     try:
@@ -445,7 +449,7 @@ def main(argv=None):
     rt.add_argument('--take', required=True)
     dr = sub.add_parser('doctor', help='check what floored needs and install what is missing')
     dr.add_argument('--json', action='store_true', help='print the report as JSON')
-    dr.add_argument('--install', metavar='ITEM', help='install one item: venv, packages, rvm-model, renderer or words')
+    dr.add_argument('--install', metavar='ITEM', help='install one item: python, node, ffmpeg, venv, packages, rvm-model, renderer or words')
     dr.add_argument('--gpu-check', action='store_true', help='check whether the graphics card gives identical cutouts')
     args = ap.parse_args(argv)
     if args.command == 'doctor':

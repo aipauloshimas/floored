@@ -622,3 +622,13 @@ def test_gpu_check_survives_an_exception_in_the_parity_run(monkeypatch):
     assert not JARGON.search(result['message']) and 'driver crashed' not in result['message']
     machine = json.loads((paths.user_dir() / 'machine.json').read_text(encoding='utf-8'))
     assert machine['matteProvider'] == 'cpu'
+
+
+def test_the_ready_message_reads_right_for_every_step(monkeypatch):
+    """One line the creator may be shown: "The Python add-ons are ready.", never "add-ons is"."""
+    steps = ('venv', 'packages', 'rvm-model', 'renderer', 'words')
+    for item_id in steps:
+        monkeypatch.setitem(doctor.INSTALLERS, item_id, lambda log: None)
+    assert [doctor.install(i)['message'] for i in steps] == [
+        'The Python environment is ready.', 'The Python add-ons are ready.', 'The cutout model is ready.',
+        'The video maker is ready.', 'The speech reader is ready.']

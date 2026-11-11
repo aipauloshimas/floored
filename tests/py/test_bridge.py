@@ -90,6 +90,14 @@ def test_add_missing_file_exit_2(bridge, tmp_path):
     assert not (tmp_path / 'proj' / 'floored' / '.server.json').exists()          # nothing was started for it
 
 
+def test_add_reads_a_path_that_starts_at_the_home_folder(bridge, tmp_path):
+    """A creator writes "~/Movies/take.mp4". Inside quotes the shell leaves the ~ as it is, so floored expands it."""
+    home = tmp_path / 'home'
+    home.mkdir()
+    r = bridge.run('add', '~/Movies/nope.mp4', '--workspace', tmp_path / 'proj', env={'HOME': str(home), 'USERPROFILE': str(home)})
+    assert r.returncode == 2 and os.path.join(str(home), 'Movies', 'nope.mp4') in r.stderr, r.stderr
+
+
 def test_add_not_a_video_exit_2(bridge, tmp_path):
     txt = tmp_path / 'notes.txt'
     txt.write_text('hello', encoding='utf-8')
@@ -285,6 +293,25 @@ def test_suggest_server_checks_too(srv_url, ready_take):
 def test_suggest_unknown_take_exit_2(bridge, proj, srv_url, tmp_path):
     r = bridge.run('suggest', '--workspace', proj, '--take', 'no-such-take', '--file', write_suggestions(tmp_path, GOOD))
     assert r.returncode == 2 and 'No such take' in r.stderr
+
+
+def test_suggest_reads_a_file_powershell_wrote(bridge, proj, srv_url, ready_take, tmp_path):
+    """Windows PowerShell's `>` writes UTF-16 with a byte-order mark; the accents must arrive whole."""
+    f = tmp_path / 'ps.json'
+    f.write_bytes(json.dumps({'suggestions': ['Não é mágica, é método'], 'smallSuggestions': []}, ensure_ascii=False).encode('utf-16'))
+    r = bridge.run('suggest', '--workspace', proj, '--take', ready_take, '--file', f)
+    assert r.returncode == 0, r.stderr
+    assert get_take(srv_url, ready_take)['suggestions'] == ['Não é mágica, é método']
+
+
+def test_suggest_says_when_the_file_is_not_utf8(bridge, proj, srv_url, ready_take, tmp_path):
+    """A file saved in the Windows code page: refuse it and say why, never store broken accents."""
+    before = get_take(srv_url, ready_take)['suggestionsRev']
+    f = tmp_path / 'ansi.json'
+    f.write_bytes('{"suggestions": ["Não é mágica"], "smallSuggestions": []}'.encode('cp1252'))
+    r = bridge.run('suggest', '--workspace', proj, '--take', ready_take, '--file', f)
+    assert r.returncode == 2 and 'UTF-8' in r.stderr and 'file-writing tool' in r.stderr, r.stderr
+    assert get_take(srv_url, ready_take)['suggestionsRev'] == before
 
 
 def sha(path):
