@@ -22,10 +22,11 @@ the finder; it prints one line:
 - Windows: `powershell -NoProfile -ExecutionPolicy Bypass -File "<skill folder>\app\get-python.ps1"`
 - Mac: `sh "<skill folder>/app/get-python.sh"`
 
-`FLOORED_PYTHON=<path>`: that path is `PY`. `NO_PYTHON`: the computer has no Python 3.10 or newer, and the setup
-check needs one to start. Ask for it alone, before the question of step 2: floored downloads its own copy of Python
-(about 47 MB on Windows, 25 MB on a Mac) into its own folder, with no installer and no password, and nothing else
-on the computer changes. On a yes run the same command with `--install`; it prints `FLOORED_PYTHON=<path>`. Never
+`FLOORED_PYTHON=<path>`: that path is `PY`. `NO_PYTHON` (exit code 3): the computer has no Python 3.10 or newer,
+and the setup check needs one to start. Ask for it alone, before the question of step 2: floored downloads its own
+copy of Python (about 47 MB on Windows, 25 MB on a Mac) into its own folder, with no installer and no password, and
+nothing else on the computer changes. On a yes run the same command with `--install`, in the background like the
+installs of step 2 (seconds on a fast connection, minutes on a slow one); it prints `FLOORED_PYTHON=<path>`. Never
 call `python` or `python3` by hand instead: on a computer with no Python, Windows answers with its Store stub and a
 Mac opens Apple's developer-tools dialog. Every command is:
 
@@ -33,59 +34,73 @@ Mac opens Apple's developer-tools dialog. Every command is:
 "PY" "<skill folder>/app/floored.py" <command> ...
 ```
 
+In PowerShell the line starts with the call operator: `& "PY" "<skill folder>\app\floored.py" <command> ...`.
+
 Below, `APP` means that command prefix and `WS` means the creator's current project folder (the working directory);
 takes and exports go in `WS/floored/`. `floored.py` hands over to its own private Python environment by itself. Run
 `APP <command> --help` for any flag.
 
 ## The flow
 
-1. **Setup check.** `APP doctor --json`. Exit 0 and `"ok": true`: skip to step 3. Otherwise go to step 2. When the
-   browser is the only item missing and your tools have a Browser pane, the setup is done too: the studio opens in
-   the pane.
+1. **Setup check.** `APP doctor --json`. Exit 0 and `"ok": true`: the setup is done, go to step 3. Otherwise go to
+   step 2. When the browser is the only item missing and your tools have a Browser pane, the setup is done too: the
+   studio opens in the pane.
 2. **Setup, with consent.** Ask **one** question that lists every item with `ok: false`, with its size (`mb`, plus
-   `downloadMb` for the total) in plain words: "the cutout model (15 MB)", never the internal ids. Say that the video
-   maker (`renderer`) is the long step and quote its `minutes` field: "the video maker (399 MB, about 12 minutes)", often
-   10 to 15. The speech reader carries `minutes` too (about 1). When Python, Node.js or ffmpeg is on the list, it is
-   floored's own copy: say what its `note` says (it goes into floored's own folder, and nothing else on the computer
-   changes). An item with `how: "manual"` (the browser) is installed by the `command` in the report, and the
-   question says so. List the optional ones apart: "the speech reader" (`words`, reads the words from the creator's
-   speech; without it they type the words) and the graphics-card check (`doctor --gpu-check`, no download, about a
-   minute). On a yes, run the manual command if there is one, then `APP doctor --install ITEM` for each accepted
-   `auto` item in this order: `python`, `node`, `ffmpeg` (the ones on the list), `venv`, `packages`, `rvm-model`, then
-   `doctor --gpu-check` if they chose it, `renderer`, `words`; run `APP doctor --json` once more. Install only what
-   they accepted. **Run every `doctor --install` in the background**
-   (Bash `run_in_background`; `renderer` above all: the foreground tool stops at 10 minutes and the step takes longer
-   than that on a slow PC) and wait for it to exit before starting the next one; never start a second install of the
-   same item while one runs. While one runs, tell the creator it is still working (for the video maker: it prints almost
-   nothing until it is done, so a quiet screen is normal). A failed step: [troubleshooting](reference/troubleshooting.md).
+   `downloadMb` for the total) in plain words: "the cutout model (15 MB)", never the internal ids (the report's
+   `summary` has the plain names). Say that the video maker (`renderer`) is the long step and quote its `minutes`
+   field: "the video maker (399 MB, about 12 minutes)", often 10 to 15. The speech reader carries `minutes` too
+   (about 1). When Python, Node.js or ffmpeg is on the list, it is floored's own copy: keep its name and say what its
+   `note` says (it goes into floored's own folder, and nothing else on the computer changes). An item with
+   `how: "manual"` (the browser) is installed by the `command` in the report, and the question says so; with a
+   Browser pane, leave the browser out of the question and the installs. List the optional ones apart, in the same
+   question: "the speech reader" (`words`, reads the words from the creator's speech; without it they type the
+   words) and the graphics-card check (`gpu`: no download, about a minute). An optional one they say nothing about
+   is left out.
+
+   On a yes, run the manual command if there is one, then one setup command per accepted item, in this order,
+   leaving out what is already `ok`: `APP doctor --install python`, `node`, `ffmpeg`, `venv`, `packages`,
+   `rvm-model`, then `APP doctor --gpu-check` if they chose it, then `--install renderer` and `--install words`.
+   Run `APP doctor --json` once more: step 1 says when the setup is done. Install only what they accepted. **Run
+   every setup command in the background** (your shell tool's `run_in_background`, in Bash or PowerShell; `renderer`
+   above all: the foreground tool stops at 10 minutes and the step takes longer than that on a slow PC) and wait for
+   it to exit before starting the next one. The background run tells you when it ends, so don't poll, and never
+   start a second install of the same item while one runs. When the video maker starts, tell the creator once that
+   it prints almost nothing until it is done, so a quiet screen is normal. A failed step:
+   [troubleshooting](reference/troubleshooting.md).
+
    **A blanket go is the yes.** When the creator has already said, in their own words, to do everything without
-   asking ("do everything, don't ask me anything", "faz tudo e não me pergunta nada"), skip the question and don't
-   wait for an answer. Say in one line what you are installing, with the total size (`downloadMb` plus the speech
-   reader's `mb`) and the video maker's minutes ("Setting up floored now: 671 MB, about 13 minutes, most of it the
-   video maker"), and that the last click stays theirs: when they are back, they pick the look and press **Export**.
-   Then install everything the report lists as missing, in the order above: the manual command if there is one, the
-   `auto` items and both optional ones. The blanket go covers floored's own Python as well: on `NO_PYTHON` run the
-   finder with `--install` without asking. A plain request for an intro is not a blanket go: then ask.
-3. **No clip yet?** Show them [how to film it](reference/filming.md) in your own words (phone up high and a little
-   in front, tilted down, not straight down, whole body, one spot, 3 to 8 s), then start the studio (step 4, no
-   `add`). Its home page has a sample take: point at **Try the sample take**, so they can try the looks now and film
-   later. Never offer to generate the take or to make it for them: it is theirs to film.
-4. **Start the studio.** `APP serve --workspace WS --detach` prints `FLOORED_URL=<url>`. Open that URL in the desktop
+   asking ("do everything, don't ask me anything", "faz tudo e não me pergunta nada"), skip both questions and don't
+   wait for an answer. On `NO_PYTHON`, say in a few words that floored is getting its own copy of Python, and run
+   the finder with `--install`. After the setup check, say in one line what you are installing, with the total size
+   (`downloadMb` plus the speech reader's `mb`) and the time (the `minutes` fields added up): "Setting up floored
+   now: 671 MB, about 13 minutes, most of it the video maker". Say too that the last click stays theirs: when they
+   are back, they pick the look and press **Export**. Then install everything the report lists as missing, in the
+   order above: the manual command if there is one, the `auto` items and both optional ones. A plain request for an
+   intro is not a blanket go: then ask.
+3. **No clip yet?** (With a clip, go to step 4.) Show them [how to film it](reference/filming.md) in your own words
+   (phone up high and a little in front, tilted down, not straight down, whole body, one spot, 3 to 8 s), then start
+   the studio (step 4, no `add`). Its home page has a sample take: point at **Try the sample take**, so they can try
+   the looks now and film later. Never offer to generate the take or to make it for them: it is theirs to film.
+4. **Start the studio.** `APP serve --workspace WS --detach` prints `FLOORED_URL=<url>`, the studio's home page.
+   With a clip path, don't open it: step 5 gives the take's own page. With no clip path, open it in the desktop
    app's Browser pane when your tools have one; otherwise run the same command with `--open` (Chrome or Edge). If it
-   prints `NO_CHROMIUM`, give them the address and say it needs Chrome, Edge, Brave or Arc. With no clip path, start `APP wait --workspace WS --next` in the
-   background right after `serve`, before the creator drops the clip in the page: `--next` only catches takes created
-   after it starts.
-5. **With a clip path:** `APP add --workspace WS "<path>"` prints `{"take", "url"}` and processing starts at once; open
-   that `url`. **Without a path:** the creator drops the clip in the studio; the `--next` waiter from step 4 is already running.
+   prints `NO_CHROMIUM`, give them the address and say it needs Chrome, Edge, Brave or Arc. Then start
+   `APP wait --workspace WS --next` in the background right away, before the creator drops the clip in the page:
+   `--next` only catches takes created after it starts.
+5. **With a clip path:** `APP add --workspace WS "<path>"` prints `{"take", "url"}` and processing starts at once.
+   Open that `url`, the take's page in the same studio, in the Browser pane; with no Browser pane, run
+   `APP serve --workspace WS --detach --open`: the home page opens in Chrome or Edge with the take on it.
+   **Without a path:** the creator drops the clip in the studio; the `--next` waiter from step 4 is already running.
 6. **Wait, in the background.** `APP wait --workspace WS --take ID` (or `--next` for a clip dropped in the page), run
    in the background so the creator can use the studio meanwhile. Tell them the studio shows the time left. Quote that
    figure, never your own guess (see [Wait time](#wait-time)). Exit 0: ready, step 7. Exit 3: failed. Exit 4: timed
    out, wait again. Both: [troubleshooting](reference/troubleshooting.md).
 7. **Hooks.** The ready result has `hasWords`, `language`, `transcript` and `warnings`. Write 4 hooks plus 1 small line
-   by the rules in [hooks](reference/hooks.md), then `APP suggest --workspace WS --take ID --file <path>`. On Windows
-   write the JSON to a UTF-8 file and pass that path (a PowerShell pipe can mangle accents); `--file -` reads stdin, fine
-   in Git Bash or with a heredoc. Tell them the suggestions are in the studio's Suggestions tab. No speech (`hasWords` false, or a junk
-   transcript): ask one question about the reel, then write the hooks from the answer.
+   by the rules in [hooks](reference/hooks.md), then `APP suggest --workspace WS --take ID --file <path>`. Write
+   the JSON to a file with your file-writing tool and pass that path (a PowerShell pipe or redirect can mangle
+   accents); `--file -` reads stdin, fine in Git Bash or with a heredoc. Tell them the suggestions are in the
+   studio's Suggestions tab. No speech (`hasWords` false, or a junk transcript): ask one question about the reel,
+   then write the hooks from the answer.
 8. **Stay available.** Explain each warning from the take in plain words (the `code` has a row in
    [troubleshooting](reference/troubleshooting.md)), re-run a failed step with `APP retry --workspace WS --take ID`,
    and point at the Export button when they are done designing. **An export that fails** is not a take step, so
@@ -133,4 +148,6 @@ don't ask the creator for words, style or camera before the take is processing: 
 ## Language
 
 Talk to the creator in their language, in short friendly sentences with no jargon: "cutout model", "video maker",
-never the names of the tools underneath. The studio itself is in English.
+never the names of the tools underneath. The one exception is the setup question: Python, Node.js and ffmpeg keep
+their names there, each with a few words on what it does ("ffmpeg, which reads and writes video"), so the creator
+can recognise them later. The studio itself is in English.
