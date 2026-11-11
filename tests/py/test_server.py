@@ -210,20 +210,39 @@ def test_stop_does_not_kill_another_workspaces_server(tmp_path, ftcli):
     assert fetch(ftcli.url_of(ra), '/api/info')[0] == 200
 
 
-def test_status(tmp_path, ftcli):
-    w = tmp_path / 'p'
-    assert json.loads(ftcli.run('status', '--workspace', w).stdout) == {'url': None, 'takes': [], 'exports': []}
-    url = ftcli.url_of(ftcli.run('serve', '--workspace', w, '--detach'))
+def _seed(w):
+    """One take (cutting) and one export (done) on disk, the way a studio leaves them."""
     d = paths.Workspace(w).takes / 't1'
-    d.mkdir()
+    d.mkdir(parents=True)
     (d / 'take.json').write_text('{"id": "t1", "name": "x", "created": "2026-01-01T00:00:00"}', encoding='utf-8')
     (d / 'status.json').write_text('{"stage": "cutting", "progress": 0.5, "overall": 0.4, "message": "m"}', encoding='utf-8')
     e = paths.Workspace(w).exports / '20260101-000000-abcd'
-    e.mkdir()
+    e.mkdir(parents=True)
     (e / 'status.json').write_text('{"id": "20260101-000000-abcd", "stage": "done", "progress": 1}', encoding='utf-8')
+
+
+def test_status_no_studio_lists_the_takes_of_the_folder(tmp_path, ftcli):
+    w = tmp_path / 'p'
+    r = ftcli.run('status', '--workspace', w)                       # nothing there yet
+    assert r.returncode == 0
+    assert json.loads(r.stdout) == {'running': False, 'url': None, 'takes': [], 'exports': []}
+    _seed(w)                                                        # a studio that stopped leaves these behind
+    r = ftcli.run('status', '--workspace', w)
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert out['running'] is False and out['url'] is None
+    assert out['takes'] == [{'id': 't1', 'name': 'x', 'stage': 'cutting', 'progress': 0.4}]
+    assert out['exports'] == [{'id': '20260101-000000-abcd', 'stage': 'done'}]
+
+
+def test_status_running_studio(tmp_path, ftcli):
+    w = tmp_path / 'p'
+    url = ftcli.url_of(ftcli.run('serve', '--workspace', w, '--detach'))
+    _seed(w)
     out = json.loads(ftcli.run('status', '--workspace', w).stdout)
+    assert out['running'] is True
     assert out['url'] == url
-    assert out['takes'] == [{'id': 't1', 'stage': 'cutting', 'progress': 0.4}]          # the built-in sample is not a take
+    assert out['takes'] == [{'id': 't1', 'name': 'x', 'stage': 'cutting', 'progress': 0.4}]          # the built-in sample is not a take
     assert out['exports'] == [{'id': '20260101-000000-abcd', 'stage': 'done'}]
 
 

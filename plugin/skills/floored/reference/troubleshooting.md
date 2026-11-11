@@ -55,7 +55,7 @@ log: `WS/floored/server.log` (the server), `WS/floored/takes/<id>/log.txt` (one 
 | "floored: the server didn't start (...). Details: <log>" | No studio | Read the log's last lines. A port clash needs nothing (it picks the next free one). Show the cause if it repeats. |
 | `NO_CHROMIUM https://www.google.com/chrome/` | The studio didn't open | Give them the address and the Chrome link. |
 | "floored: couldn't open the browser (...). Open <url> yourself." | The studio didn't open | Give them the address. |
-| `status` shows `"url": null` | The page can't connect | The studio stopped (it exits after two idle hours). Run `serve --detach` again; the takes are kept. |
+| `status` shows `"running": false` | The page can't connect, or says "The studio stopped" | The studio stopped (it exits after two idle hours). The takes it lists are read from the folder and are kept: they are not gone. Run `serve --detach` again and open the address. |
 | "This server only answers on 127.0.0.1." / "Requests from other sites are not allowed." (403) | A blank page or an error | The address must be exactly the one `serve` printed, opened in the creator's own browser. |
 
 ## Adding a clip

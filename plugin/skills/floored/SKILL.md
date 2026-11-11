@@ -80,6 +80,13 @@ means the creator's current project folder (the working directory); takes and ex
    `retry` doesn't apply: find its message under Export problems in [troubleshooting](reference/troubleshooting.md).
    **A bug they report** may already be fixed: see Updating in the same file.
 
+**Coming back.** When the creator returns later, or says the page stopped or shows "The studio stopped", run
+`APP status --workspace WS`. If `running` is false, run `APP serve --workspace WS --detach` and open the address it
+prints (usually the same one). Their takes, text and looks are kept in `WS/floored/`, and `status` lists the takes
+even while the studio is stopped. An empty list means no clip was added in this folder: if they started Claude in
+another folder last time, their takes are there. Then go on where they were: waiting (step 6), hooks (step 7), or
+the Export button (step 8).
+
 ## Wait time
 
 The studio's processing screen shows "About N min left", and `wait` prints its progress. Quote that, once it appears.
