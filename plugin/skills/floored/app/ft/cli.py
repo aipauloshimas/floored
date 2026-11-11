@@ -13,7 +13,7 @@ serve  Prints one line `FLOORED_URL=http://127.0.0.1:<port>/`. A server already 
        being cut or an export is running. 0 = never.
 stop   Stops this workspace's server (exit 0 also when none runs). It only kills a process that answers /api/info as a
        floored server for this workspace with the recorded pid, never an unrelated process that reused the number.
-status Prints {"url", "takes": [{id, stage, progress}], "exports": [{id, stage}]} as JSON; "url" is null when no server runs.
+status Prints {"running", "url", "takes": [{id, name, stage, progress}], "exports": [{id, stage}]} as JSON; "running" is false and "url" null when no studio runs, and the takes and exports are still listed from the folder.
 
 The Claude bridge (what the skill runs for the creator; each prints one JSON line on stdout, notes and errors go to stderr):
   floored.py add     VIDEO --workspace DIR     sends the video to the studio server (started detached when none runs)
@@ -231,18 +231,26 @@ def cmd_stop(args):
     return 0
 
 
+def folder_status(ws, url=None, running=False):
+    """What `status` prints when it cannot ask a studio: the takes and exports of the folder, read from disk."""
+    from ft import export, pipeline          # only here: the other commands start without them
+    return {'running': running, 'url': url,
+            'takes': pipeline.take_summaries(pipeline.list_takes(str(ws.takes))),
+            'exports': export.export_summaries(ws.exports)}
+
+
 def cmd_status(args):
     ws = paths.Workspace(os.path.abspath(args.workspace))
     state, rec = server.probe(ws)
-    out = {'url': None, 'takes': [], 'exports': []}
+    out = folder_status(ws)
     code = 0
     if state == 'running':
         try:
             out = server.loopback_json(local_url(rec, '/api/status'))
         except (OSError, ValueError):
-            pass
+            out = folder_status(ws, local_url(rec), True)
     elif state == 'unreachable':
-        out = {'url': local_url(rec), 'takes': [], 'exports': [], 'unreachable': True}
+        out = dict(folder_status(ws, local_url(rec)), unreachable=True)
         code = 1
     print(json.dumps(out, ensure_ascii=False))
     return code
