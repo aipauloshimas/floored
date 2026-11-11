@@ -146,6 +146,11 @@ export function createExport(c) {
     });
     return code;
   }
+  /* what the app wants the creator to know about the finished file: details.notes, plain sentences (often none) */
+  function exportNotes(r) {
+    var notes = r && r.details && r.details.notes;
+    return Array.isArray(notes) ? notes.filter(function (n) { return typeof n === 'string' && n; }) : [];
+  }
   function viewDone() {
     var name = baseName(ex.path || ex.file);
     var video = h('video', { class: 'result-video', controls: true, playsinline: true, preload: 'metadata', src: ex.file ? ex.file + '#t=0.05' : null });
@@ -160,6 +165,7 @@ export function createExport(c) {
       h('div', { class: 'result-info' },
         h('h3', { class: 'result-title', text: 'Your intro is ready' }),
         h('p', { class: 'muted', text: resultLine(c.take) }),
+        (ex.notes || []).map(function (note) { return h('p', { class: 'muted note result-note', text: note }); }),
         ex.path ? pathEl(ex.path) : null,
         h('div', { class: 'result-actions' }, dl, show),
         again)));
@@ -264,7 +270,7 @@ export function createExport(c) {
       ex.fail = 0;
       ex.stage = r.stage; ex.progress = +r.progress || 0; ex.message = r.message || '';
       if (r.stage === 'done') {
-        ex.phase = 'done'; ex.file = r.file || ''; ex.path = r.path || '';
+        ex.phase = 'done'; ex.file = r.file || ''; ex.path = r.path || ''; ex.notes = exportNotes(r);
         setExportBusy(false);
         if (c.ui.exportBtn) c.ui.exportBtn.classList.add('has-result');
         if (!exportEl) toast('Your intro is ready. Open Export to see it.');

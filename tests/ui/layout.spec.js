@@ -45,7 +45,7 @@ async function stubExport(page, state) {
   await page.route('**/api/exports/j1', (route) => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify(state.stage === 'done'
-      ? { stage: 'done', progress: 1, file: '/stub/out.mp4', path: 'C:\\Users\\you\\floored\\intro.mp4' }
+      ? { stage: 'done', progress: 1, file: '/stub/out.mp4', path: 'C:\\Users\\you\\floored\\intro.mp4', details: state.details }
       : state.stage === 'error' ? { stage: 'error', progress: 0, message: 'The render did not finish. Try again.' }
       : { stage: state.stage, progress: state.progress })
   }));
@@ -408,6 +408,23 @@ test.describe('a 4K take', () => {
     const mins = Math.ceil(take.frames * 6 / 60);
     await expect(page.locator('.format-estimate')).toHaveText('Export: about ' + mins + ' min');
   });
+});
+
+test('a finished export shows the notes the app sends with it, and none when it sends none', async ({ page }) => {
+  const note = 'No speech was found in this take, so its sound was kept at its own level.';
+  const state = { stage: 'done', details: { notes: [note] } };
+  await openSample(page);
+  await stubExport(page, state);
+  await page.getByRole('button', { name: 'Export' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export your intro' });
+  await dialog.getByRole('button', { name: 'Render', exact: true }).click();
+  await expect(dialog).toHaveAttribute('data-view', 'done', { timeout: 10000 });
+  await expect(dialog.locator('.result-note')).toHaveText([note]);
+  await dialog.getByRole('button', { name: 'Render again' }).click();
+  state.details = { notes: [] };
+  await dialog.getByRole('button', { name: 'Render', exact: true }).click();
+  await expect(dialog).toHaveAttribute('data-view', 'done', { timeout: 10000 });
+  await expect(dialog.locator('.result-note')).toHaveCount(0);
 });
 
 test('screenshots for the taste pass', async ({ page }) => {
