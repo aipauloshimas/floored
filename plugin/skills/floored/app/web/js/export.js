@@ -1,7 +1,8 @@
 import { IC, btn, byId, callout, clamp, clone, fill, h, ico, svgWrap, switchEl, toast } from './util.js';
 import { api, postJSON } from './api.js';
+import { isGone, onReach } from './reach.js';
 import { DEBUG, FONTS, LOOKS, isEdited, optLabel, palLabel } from './store.js';
-import { RENDER_SEC_PER_FRAME, exportEstimateText, exportRunningText, outputLine, resultLine } from './copy.js';
+import { REACH, RENDER_SEC_PER_FRAME, exportEstimateText, exportRunningText, outputLine, resultLine } from './copy.js';
 
 var EXPORT_STEPS = [
   { id: 'writing', title: 'Preparing' },
@@ -172,7 +173,16 @@ export function createExport(c) {
     fill(exRefs.foot, btn('Back to editing', { kind: 'ghost', onclick: requestClose }));
   }
   function viewError() {
-    fill(exRefs.body, callout('error', 'The render did not finish', ex.error || 'Something went wrong.'),
+    if (ex.network) {
+      /* the server was gone: only true words, and no Try again while it cannot work */
+      var gone = isGone();
+      fill(exRefs.body, callout('error', REACH.renderTitle, REACH.renderGone),
+        h('p', { class: 'muted note', text: gone ? REACH.renderGoneNote : REACH.renderBackNote }));
+      fill(exRefs.foot, btn('Close', { kind: 'ghost', onclick: requestClose }),
+        gone ? null : btn('Try again', { kind: 'primary', onclick: startExport }));
+      return;
+    }
+    fill(exRefs.body, callout('error', REACH.renderTitle, ex.error || 'Something went wrong.'),
       h('p', { class: 'muted note', text: 'Your settings are safe. You can try again.' }));
     fill(exRefs.foot, btn('Close', { kind: 'ghost', onclick: requestClose }), btn('Try again', { kind: 'primary', onclick: startExport }));
   }
@@ -260,7 +270,7 @@ export function createExport(c) {
       ex.id = res.id; ex.phase = 'running';
       exTimer = setTimeout(pollExport, 400);
       renderExport();
-    }).catch(function (err) { if (!c.disposed) failExport(err && err.message); });
+    }).catch(function (err) { if (!c.disposed) failExport(err && err.message, err && err.network); });
   }
   function pollExport() {
     clearTimeout(exTimer);
@@ -284,22 +294,27 @@ export function createExport(c) {
     }, function (err) {
       if (c.disposed || ex.phase !== 'running') return;
       ex.fail = (ex.fail || 0) + 1;
-      if (err.status === 404 || ex.fail >= 6) failExport(err.message);
+      if (err.status === 404 || ex.fail >= 6 || err.network) failExport(err.message, err.network);
       else exTimer = setTimeout(pollExport, 1000);
     });
   }
-  function failExport(msg) {
+  function failExport(msg, network) {
     clearTimeout(exTimer);
-    ex.phase = 'error'; ex.error = msg || 'Something went wrong.';
+    ex.phase = 'error'; ex.error = msg || 'Something went wrong.'; ex.network = !!network;
     setExportBusy(false);
     if (!exportEl) toast('The render did not finish.', 'error');
     renderExport();
   }
 
+  /* the server went away or came back while the dialog shows a render that failed for that reason: say what is true now */
+  var stopReach = onReach(function () {
+    if (exportEl && ex.phase === 'error' && ex.network) { exView = ''; renderExport(); }
+  });
+
   return {
     setExport: setExport,
     isOpen: function () { return !!exportEl; },
     openIfWanted: function () { if (wantExport) openExport(); },
-    dispose: function () { clearTimeout(exTimer); document.removeEventListener('keydown', exKey); }
+    dispose: function () { stopReach(); clearTimeout(exTimer); document.removeEventListener('keydown', exKey); }
   };
 }

@@ -4,6 +4,7 @@ import { DEBUG, autoHero, flush, loadSettings, rememberSmall, saveSettings } fro
 import { createPreview } from './preview.js';
 import { SECTION_IDS, createPanel } from './panel.js';
 import { createExport } from './export.js';
+import { onReach } from './reach.js';
 
 export function studioScreen(id, query) {
   var take = null, status = null, S = null, preview = null;
@@ -282,7 +283,10 @@ export function studioScreen(id, query) {
     if (document.hidden && preview && preview.isPlaying()) preview.pause();
     if (!document.hidden && S && !pollBusy) { clearTimeout(pollTimer); poll(); }      // back on the page: look for new ideas at once
   });
+  /* the studio is back after being gone: read the take again at once instead of waiting for the next tick */
+  var stopReach = onReach(function (gone) { if (!disposed) layoutStage(); if (!gone && !disposed && S && !pollBusy) { clearTimeout(pollTimer); poll(); } });
   function dispose() {
+    stopReach();
     panelUI.flushPending();      // typing still waiting on its 400 ms is applied and saved first, then the studio goes quiet
     disposed = true;
     clearTimeout(pollTimer); pollTimer = 0;
