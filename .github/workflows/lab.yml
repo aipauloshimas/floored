@@ -305,7 +305,7 @@ jobs:
           exit 0
 
       - name: first contact (finder, own Python, the doctor's installs, a real take)
-        run: .github\labc-windows.ps1
+        run: .github\lab\fc-windows.ps1
 
       - name: put the machine back
         if: always()
