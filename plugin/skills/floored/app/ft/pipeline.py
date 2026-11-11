@@ -102,17 +102,26 @@ def read_json(path, default=None):
 
 
 def write_json(path, obj):
-    """Atomic: the UI polls these files while the worker rewrites them."""
+    """Atomic: the UI polls these files while the worker rewrites them. On Windows the swap is refused while a reader
+    has the file open (the page, Claude's waiter, an antivirus); on a busy computer that reader can be held up for
+    seconds, so the swap is tried again for about twelve seconds before it gives up."""
     tmp = '%s.%d.tmp' % (path, threading.get_ident())
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(obj, f, ensure_ascii=False, indent=1)
-    for _ in range(40):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:          # a reader has it open for a moment (Windows)
-            time.sleep(0.05)
-    os.replace(tmp, path)
+    try:
+        for attempt in range(120):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                time.sleep(min(0.02 * (attempt + 1), 0.1))
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def missing_tool_copy(e):
@@ -354,6 +363,7 @@ class Pipeline:
         self.last = {}                     # id -> the status last written (answers a poll if the file is mid-replace)
         self.lock = threading.Lock()
         self._last_write = 0.0
+        self._unwritten = set()            # takes whose skipped progress line is already in the log
         self.recover()
         threading.Thread(target=self._worker, name='pipeline', daemon=True).start()
 
@@ -500,7 +510,14 @@ class Pipeline:
         st = {'stage': stage, 'progress': progress, 'overall': self._overall(stage, progress), 'message': message}
         st.update(extra)
         self.last[tid] = st
-        write_json(os.path.join(self.folder(tid), 'status.json'), st)
+        try:
+            write_json(os.path.join(self.folder(tid), 'status.json'), st)
+        except OSError as e:
+            if force:                                    # a stage change must reach the file
+                raise
+            if tid not in self._unwritten:               # a progress line is not worth a take: the next one is written
+                self._unwritten.add(tid)
+                self._log(tid, 'a progress line could not be written (%s); the take goes on' % (e.strerror or e))
 
     @staticmethod
     def _overall(stage, progress):

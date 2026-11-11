@@ -1072,3 +1072,18 @@ def test_a_failed_export_keeps_its_work_files_for_the_log(tmp_path, server_facto
     assert st['stage'] == 'error'
     folder = Path(project) / 'floored' / 'exports' / st['id']
     assert (folder / 'assets').is_dir() and (folder / 'video.mp4').exists()
+
+
+def test_an_export_progress_line_that_cannot_be_written_is_skipped_and_the_end_is_not(tmp_path, monkeypatch):
+    """The same rule as for a take: a progress line never fails an export; its end (done or error) must reach the file."""
+    def refuse(*a, **k):
+        raise PermissionError(13, 'Simulated: a reader holds the file')
+    exp = export.Exporter(None, tmp_path / 'exports')
+    job = {'dir': str(tmp_path), 'id': 'x', 'created': 'now'}
+    monkeypatch.setattr(export, 'write_json', refuse)
+    exp._last_save = 0
+    exp._set(job, 'render', 0.4, 'Rendering')
+    assert job['stage'] == 'render' and job['progress'] == 0.4
+    with pytest.raises(PermissionError):
+        exp._set(job, 'done', 1.0, 'Your video is ready', force=True)
+

@@ -522,7 +522,11 @@ class Exporter:
         self._last_save = now
         with self.lock:
             snap = self._public(job)
-        write_json(os.path.join(job['dir'], 'status.json'), snap)
+        try:
+            write_json(os.path.join(job['dir'], 'status.json'), snap)
+        except OSError:
+            if force:                                    # the end of an export (done or error) must reach the file
+                raise                                    # a progress line is not worth an export: the next one is written
 
     def _set(self, job, stage, progress, message, force=False, **extra):
         with self.lock:

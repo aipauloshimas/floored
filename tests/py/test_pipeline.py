@@ -417,3 +417,54 @@ def test_unwritable_machine_json_does_not_fail_a_good_cut(ws, made, portrait_108
     assert st['stage'] == 'ready', st
     assert take['feet'] and take['files']['person'] == 'person.webm'
     assert 'could not save the timing' in open(os.path.join(pipe.folder(tid), 'log.txt'), encoding='utf-8').read()
+
+
+# ------------------------------------------------------------------------------------ the status file under a reader
+def _refuse(*a, **k):
+    raise PermissionError(13, 'Simulated: a reader holds the file')
+
+
+def test_a_progress_line_that_cannot_be_written_is_skipped_and_a_stage_change_is_not(ws, made, monkeypatch):
+    """Windows refuses to replace status.json while a reader has it open (Claude's waiter, the page, an antivirus), and
+    on a busy computer that reader can hold it for seconds. A progress line is not worth a take: it is skipped and the
+    next one is written. A stage change must reach the file, so that one still fails loudly."""
+    pipe = made(ws)
+    tid = 'take-x'
+    os.makedirs(pipe.folder(tid))
+    monkeypatch.setattr(pipeline, 'write_json', _refuse)
+    pipe._last_write = 0
+    pipe._set(tid, 'shadow', 0.3, 'Drawing your shadow')
+    assert pipe.last[tid]['stage'] == 'shadow' and pipe.last[tid]['progress'] == 0.3
+    pipe._last_write = 0
+    pipe._set(tid, 'shadow', 0.6, 'Drawing your shadow')
+    log = open(os.path.join(pipe.folder(tid), 'log.txt'), encoding='utf-8').read()
+    assert log.count('progress line') == 1, log                       # said once, not at every line
+    with pytest.raises(PermissionError):
+        pipe._set(tid, 'words', 0.0, 'Reading your words', force=True)
+
+
+def test_write_json_waits_for_a_reader_that_is_slow_to_let_go(tmp_path, monkeypatch):
+    """About ten seconds of patience, not two: a reader starved by a busy processor comes back within a few seconds."""
+    target = tmp_path / 'status.json'
+    calls, slept = [], []
+    real_replace = os.replace
+
+    def replace(src, dst):
+        calls.append(1)
+        if len(calls) <= 100:
+            _refuse()
+        return real_replace(src, dst)
+    monkeypatch.setattr(pipeline.os, 'replace', replace)
+    monkeypatch.setattr(pipeline.time, 'sleep', slept.append)
+    pipeline.write_json(str(target), {'stage': 'shadow'})
+    assert json.loads(target.read_text(encoding='utf-8')) == {'stage': 'shadow'}
+    assert 8 <= sum(slept) <= 20, sum(slept)
+
+
+def test_write_json_leaves_no_temporary_file_when_it_gives_up(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline.os, 'replace', _refuse)
+    monkeypatch.setattr(pipeline.time, 'sleep', lambda s: None)
+    with pytest.raises(PermissionError):
+        pipeline.write_json(str(tmp_path / 'status.json'), {'stage': 'shadow'})
+    assert os.listdir(str(tmp_path)) == []
+
