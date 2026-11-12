@@ -56,6 +56,8 @@ export function capturePoster(file) {
     function fin(data) {
       if (done) return;
       done = true;
+      // the hidden video lets go of the clip first: one still loading an address that was released logs an error at every retry
+      try { v.removeAttribute('src'); v.load(); } catch (e) { /* ignore */ }
       try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
       resolve(data || null);
     }
